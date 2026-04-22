@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+out/
+.cache/
+.next/
+.turbo/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Foundry
+apps/contracts/cache/
+apps/contracts/out/
+apps/contracts/broadcast/
+apps/contracts/lib/
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage
+coverage/
+*.lcov
+
+# Vercel
+.vercel
