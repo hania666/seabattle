@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest";
+import { initialStage, reduce, type Stage } from "../state";
+
+const MATCH_ID = `0x${"1a".repeat(32)}` as `0x${string}`;
+const ME = "0x1111111111111111111111111111111111111111" as const;
+const OPP = "0x2222222222222222222222222222222222222222" as const;
+
+describe("pvp reducer", () => {
+  it("host flow: select -> txCreate -> queued -> match_ready -> placement", () => {
+    let s: Stage = initialStage;
+    s = reduce(s, { type: "select_mode", mode: "host", stakeId: "med" });
+    expect(s.name).toBe("txCreate");
+
+    s = reduce(s, { type: "tx_create_confirmed", matchId: MATCH_ID });
+    expect(s).toMatchObject({ name: "queued", matchId: MATCH_ID });
+
+    s = reduce(s, { type: "match_ready", matchId: MATCH_ID, you: "A", opponent: OPP });
+    expect(s).toMatchObject({ name: "placement", you: "A", opponent: OPP });
+  });
+
+  it("join flow: select(join) -> queued -> match_ready -> txJoin -> placement", () => {
+    let s: Stage = initialStage;
+    s = reduce(s, { type: "select_mode", mode: "join", stakeId: "med" });
+    expect(s.name).toBe("queued");
+
+    s = reduce(s, { type: "match_ready", matchId: MATCH_ID, you: "B", opponent: OPP });
+    expect(s).toMatchObject({ name: "txJoin", you: "B" });
+
+    s = reduce(s, { type: "tx_join_sent", txHash: `0x${"ff".repeat(32)}` });
+    expect(s.name).toBe("txJoin");
+
+    s = reduce(s, { type: "tx_join_confirmed" });
+    expect(s).toMatchObject({ name: "placement", you: "B" });
+  });
+
+  it("turn handover: miss swaps turn; hit keeps it", () => {
+    let s: Stage = {
+      name: "playing",
+      matchId: MATCH_ID,
+      you: "A",
+      opponent: OPP,
+      turn: ME,
+      log: [],
+      ownShots: [],
+      opponentShots: [],
+    };
+    // I fire and miss -> opponent's turn.
+    s = reduce(s, { type: "shot", by: ME, coord: [0, 0], outcome: "miss", ownAddress: ME });
+    expect(s).toMatchObject({ name: "playing", turn: OPP });
+    expect((s as { ownShots: unknown[] }).ownShots).toHaveLength(1);
+
+    // Opponent fires and hits -> keeps turn.
+    s = reduce(s, { type: "shot", by: OPP, coord: [5, 5], outcome: "hit", ownAddress: ME });
+    expect(s).toMatchObject({ name: "playing", turn: OPP });
+    expect((s as { opponentShots: unknown[] }).opponentShots).toHaveLength(1);
+  });
+
+  it("match_ended transitions to ended with signature", () => {
+    const playing: Stage = {
+      name: "playing",
+      matchId: MATCH_ID,
+      you: "A",
+      opponent: OPP,
+      turn: ME,
+      log: [],
+      ownShots: [],
+      opponentShots: [],
+    };
+    const sig = `0x${"ab".repeat(65)}` as `0x${string}`;
+    const s = reduce(playing, {
+      type: "match_ended",
+      winner: ME,
+      signature: sig,
+      lobbyAddress: "0x3333333333333333333333333333333333333333",
+    });
+    expect(s).toMatchObject({ name: "ended", winner: ME, signature: sig });
+  });
+
+  it("abort from anywhere", () => {
+    const s = reduce({ name: "queued", stakeId: "med" }, { type: "abort", reason: "opponent left" });
+    expect(s).toMatchObject({ name: "aborted", reason: "opponent left" });
+  });
+});

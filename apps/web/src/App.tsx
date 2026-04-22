@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { useAccount, useDisconnect } from "wagmi";
 import { PveScreen } from "./features/pve/PveScreen";
+import { PvpScreen } from "./features/pvp/PvpScreen";
 
-type Screen = "home" | "pve";
+type Screen = "home" | "pve" | "pvp";
 
 export default function App() {
   const { login } = useLoginWithAbstract();
@@ -22,12 +23,20 @@ export default function App() {
         </button>
         <div className="flex items-center gap-3 text-sm">
           {screen === "home" && (
-            <button
-              onClick={() => setScreen("pve")}
-              className="rounded-lg bg-sea-300 px-4 py-2 font-semibold text-sea-950 transition hover:bg-sea-200"
-            >
-              Play vs bot
-            </button>
+            <>
+              <button
+                onClick={() => setScreen("pve")}
+                className="rounded-lg bg-sea-300 px-4 py-2 font-semibold text-sea-950 transition hover:bg-sea-200"
+              >
+                Play vs bot
+              </button>
+              <button
+                onClick={() => setScreen("pvp")}
+                className="rounded-lg border border-sea-400 px-4 py-2 font-semibold text-sea-100 hover:bg-sea-400/10"
+              >
+                PvP arena
+              </button>
+            </>
           )}
           {isConnected ? (
             <button
@@ -50,8 +59,11 @@ export default function App() {
       </header>
 
       <main className="flex-1 px-6 py-10">
-        {screen === "home" && <Home onPlay={() => setScreen("pve")} />}
+        {screen === "home" && (
+          <Home onPvE={() => setScreen("pve")} onPvP={() => setScreen("pvp")} />
+        )}
         {screen === "pve" && <PveScreen onExit={() => setScreen("home")} />}
+        {screen === "pvp" && <PvpScreen onExit={() => setScreen("home")} />}
       </main>
 
       <footer className="border-t border-sea-700/40 px-6 py-4 text-center text-xs text-sea-100/40">
@@ -69,7 +81,7 @@ export default function App() {
   );
 }
 
-function Home({ onPlay }: { onPlay: () => void }) {
+function Home({ onPvE, onPvP }: { onPvE: () => void; onPvP: () => void }) {
   return (
     <div className="mx-auto max-w-2xl space-y-6 py-12 text-center">
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sea-500">
@@ -84,17 +96,16 @@ function Home({ onPlay }: { onPlay: () => void }) {
       </p>
       <div className="flex items-center justify-center gap-3 pt-2">
         <button
-          onClick={onPlay}
+          onClick={onPvE}
           className="rounded-lg bg-sea-300 px-6 py-3 text-sm font-semibold text-sea-950 transition hover:bg-sea-200"
         >
           Play vs bot
         </button>
         <button
-          disabled
-          title="Coming in phase 4/5"
-          className="rounded-lg border border-sea-700 px-6 py-3 text-sm font-semibold text-sea-500"
+          onClick={onPvP}
+          className="rounded-lg border border-sea-400 px-6 py-3 text-sm font-semibold text-sea-100 hover:bg-sea-400/10"
         >
-          PvP (soon)
+          PvP arena
         </button>
       </div>
     </div>
