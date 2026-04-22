@@ -201,7 +201,10 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
       setClaimTxHash(hash);
       await publicClient?.waitForTransactionReceipt({ hash });
       setClaimed(true);
-      dispatch({ type: "claim_confirmed" });
+      // Intentionally do NOT dispatch `claim_confirmed` here — we want to keep
+      // the stage on `ended` so `PvpResultScreen` stays mounted and can show
+      // the claim tx hash + Abscan link. Transitioning to `claimed` would
+      // unmount the result screen and hide the block-explorer link.
     } catch (e) {
       setClaimError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -304,15 +307,6 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
         onClaim={handleClaim}
         onExit={onExit}
       />
-    );
-  }
-
-  if (stage.name === "claimed") {
-    return (
-      <StatusCard title="Paid out">
-        <p className="text-sm text-sea-300">Your winnings are on the way.</p>
-        <BackButton onClick={onExit} />
-      </StatusCard>
     );
   }
 
