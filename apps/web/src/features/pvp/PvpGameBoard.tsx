@@ -65,9 +65,16 @@ function buildEnemyBoard(shots: ShotRecord[]): Board {
     const [r, c] = shot.coord;
     if (shot.outcome === "miss") cells[r][c] = { kind: "miss" };
     else if (shot.outcome === "hit") cells[r][c] = { kind: "hit", shipId: "enemy" };
-    else if (shot.outcome === "sunk" && shot.sunkShipCells) {
-      for (const [sr, sc] of shot.sunkShipCells) {
-        cells[sr][sc] = { kind: "sunk", shipId: "enemy" };
+    else if (shot.outcome === "sunk") {
+      if (shot.sunkShipCells) {
+        for (const [sr, sc] of shot.sunkShipCells) {
+          cells[sr][sc] = { kind: "sunk", shipId: "enemy" };
+        }
+      } else {
+        // Defensive: the server normally supplies sunkShipCells, but if the
+        // payload is missing fall back to marking the targeted cell as hit so
+        // the player still gets visual feedback.
+        cells[r][c] = { kind: "hit", shipId: "enemy" };
       }
     }
   }
@@ -87,8 +94,9 @@ function applyOpponentShots(board: Board, shots: ShotRecord[]): Board {
       const under = cells[r][c];
       const shipId = under.kind === "ship" ? under.shipId : "own";
       cells[r][c] = { kind: "hit", shipId };
-    } else if (shot.outcome === "sunk" && shot.sunkShipCells) {
-      for (const [sr, sc] of shot.sunkShipCells) {
+    } else if (shot.outcome === "sunk") {
+      const targets = shot.sunkShipCells ?? [shot.coord];
+      for (const [sr, sc] of targets) {
         const under = cells[sr][sc];
         const shipId = under.kind === "ship" ? under.shipId : "own";
         cells[sr][sc] = { kind: "sunk", shipId };
