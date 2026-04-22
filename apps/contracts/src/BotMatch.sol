@@ -4,19 +4,59 @@ pragma solidity 0.8.24;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /// @title Sea3Battle PvE Bot Match
-/// @notice Skeleton contract for the PvE (vs bot) activity-farming mode.
-/// @dev Full playBot/recordResult flow and XP accounting are implemented in a
-///      follow-up phase. This file pins the storage layout and admin surface.
+/// @notice Solo matches against a bot. Player pays a micro-stake (100% to the
+///         platform), plays off-chain, and the server records a signed result
+///         that mints XP on-chain.
+/// @dev    Per-player usage caps (`dailyLimit`, `cooldown`) live on-chain to
+///         resist farm bots. Server signatures are domain-separated with
+///         `address(this)` + `block.chainid` to prevent cross-deployment replay.
 contract BotMatch is Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
 
     enum Difficulty {
         Easy,
         Normal,
         Hard
     }
+
+    enum MatchStatus {
+        None,
+        Pending,
+        Completed
+    }
+
+    struct BotMatchState {
+        address player;
+        Difficulty difficulty;
+        MatchStatus status;
+        uint64 createdAt;
+    }
+
+    struct PlayerStats {
+        uint128 totalXp;
+        uint32 dailyMatches;
+        uint32 lastMatchDay;
+        uint64 lastMatchTimestamp;
+        uint32 streakDays;
+        uint32 lastStreakDay;
+    }
+
+    /// @notice Prefix tag for result signatures.
+    bytes32 public constant RESULT_TAG = keccak256("SEA3BATTLE_BOT_RESULT_V1");
+
+    /// @notice Extra XP for the first win of a UTC day.
+    uint256 public constant DAILY_BONUS_XP = 25;
+    /// @notice Extra XP when the player completes a 7-day win streak.
+    uint256 public constant WEEKLY_STREAK_XP = 500;
+    /// @notice Days of uninterrupted daily wins required for `WEEKLY_STREAK_XP`.
+    uint32 public constant STREAK_LENGTH = 7;
+
+    /// @notice Seconds in a UTC day.
+    uint32 public constant DAY = 1 days;
 
     /// @notice Address whose ECDSA signature authorizes match results.
     address public serverSigner;
@@ -33,21 +73,20 @@ contract BotMatch is Ownable, ReentrancyGuard {
     /// @notice Cooldown between matches per wallet, in seconds.
     uint32 public cooldown;
 
-    /// @notice Cumulative XP per player.
-    mapping(address => uint256) public playerXP;
-
-    /// @notice Number of matches played today by a player (resets per UTC day).
-    mapping(address => uint32) public dailyMatches;
-
-    /// @notice UTC day index of the last match for a player.
-    mapping(address => uint32) public lastMatchDay;
+    /// @notice Auto-incrementing nonce used to derive unique match ids.
+    uint256 public nextMatchNonce;
 
     /// @notice Accumulated protocol revenue from bot matches.
     uint256 public accumulatedFees;
 
-    event BotMatchPlayed(address indexed player, Difficulty difficulty, uint256 fee);
+    mapping(bytes32 matchId => BotMatchState) public botMatches;
+    mapping(address => PlayerStats) public playerStats;
+
+    event BotMatchStarted(
+        bytes32 indexed matchId, address indexed player, Difficulty difficulty, uint256 fee
+    );
     event BotMatchResultRecorded(
-        address indexed player, bytes32 indexed matchId, bool won, uint256 xpAwarded
+        bytes32 indexed matchId, address indexed player, bool won, uint256 xpAwarded
     );
     event ServerSignerUpdated(address indexed previous, address indexed current);
     event EntryFeeUpdated(Difficulty indexed difficulty, uint256 previous, uint256 current);
@@ -58,6 +97,12 @@ contract BotMatch is Ownable, ReentrancyGuard {
 
     error InvalidServerSigner();
     error InvalidLimit();
+    error InvalidFee();
+    error CooldownActive();
+    error DailyLimitReached();
+    error MatchNotPending();
+    error InvalidSignature();
+    error TransferFailed();
 
     constructor(
         address _serverSigner,
@@ -77,6 +122,113 @@ contract BotMatch is Ownable, ReentrancyGuard {
         xpReward[Difficulty.Hard] = _xpRewards[2];
         dailyLimit = _dailyLimit;
         cooldown = _cooldown;
+    }
+
+    // --- Match lifecycle -----------------------------------------------------
+
+    /// @notice Open a new PvE match against the bot.
+    /// @dev The match is "Pending" until the server posts a signed result via
+    ///      `recordResult`. The ETH stake is immediately credited to platform fees.
+    function playBot(Difficulty difficulty) external payable returns (bytes32 matchId) {
+        uint256 required = entryFee[difficulty];
+        if (msg.value != required) revert InvalidFee();
+
+        PlayerStats storage stats = playerStats[msg.sender];
+        uint32 today = uint32(block.timestamp / DAY);
+
+        // Reset the daily counter when the UTC day changes.
+        if (stats.lastMatchDay != today) {
+            stats.lastMatchDay = today;
+            stats.dailyMatches = 0;
+        }
+
+        if (
+            cooldown > 0 && stats.lastMatchTimestamp != 0
+                && block.timestamp < uint256(stats.lastMatchTimestamp) + cooldown
+        ) {
+            revert CooldownActive();
+        }
+        if (stats.dailyMatches >= dailyLimit) revert DailyLimitReached();
+
+        stats.dailyMatches += 1;
+        stats.lastMatchTimestamp = uint64(block.timestamp);
+
+        accumulatedFees += msg.value;
+
+        matchId = keccak256(
+            abi.encode(address(this), block.chainid, nextMatchNonce++, msg.sender, block.timestamp)
+        );
+        botMatches[matchId] = BotMatchState({
+            player: msg.sender,
+            difficulty: difficulty,
+            status: MatchStatus.Pending,
+            createdAt: uint64(block.timestamp)
+        });
+
+        emit BotMatchStarted(matchId, msg.sender, difficulty, msg.value);
+    }
+
+    /// @notice Server-signed result. Awards XP on win (with daily/streak bonuses).
+    function recordResult(bytes32 matchId, bool won, bytes calldata signature) external {
+        BotMatchState storage m = botMatches[matchId];
+        if (m.status != MatchStatus.Pending) revert MatchNotPending();
+
+        bytes32 digest = resultDigest(matchId, m.player, won);
+        if (digest.recover(signature) != serverSigner) revert InvalidSignature();
+
+        m.status = MatchStatus.Completed;
+
+        uint256 awarded = 0;
+        if (won) {
+            PlayerStats storage stats = playerStats[m.player];
+            uint32 today = uint32(block.timestamp / DAY);
+
+            awarded = xpReward[m.difficulty];
+
+            // Daily bonus: first *win* of the day.
+            if (stats.lastStreakDay != today) {
+                awarded += DAILY_BONUS_XP;
+
+                // Streak accounting: consecutive daily wins.
+                if (stats.lastStreakDay == today - 1) {
+                    stats.streakDays += 1;
+                } else {
+                    stats.streakDays = 1;
+                }
+                stats.lastStreakDay = today;
+
+                if (stats.streakDays == STREAK_LENGTH) {
+                    awarded += WEEKLY_STREAK_XP;
+                    stats.streakDays = 0; // reset so the next 7-win streak also pays
+                }
+            }
+
+            stats.totalXp += uint128(awarded);
+        }
+
+        emit BotMatchResultRecorded(matchId, m.player, won, awarded);
+    }
+
+    // --- Views ---------------------------------------------------------------
+
+    /// @notice Hash the server must sign for `recordResult` to succeed.
+    function resultDigest(bytes32 matchId, address player, bool won) public view returns (bytes32) {
+        return keccak256(abi.encode(RESULT_TAG, block.chainid, address(this), matchId, player, won))
+            .toEthSignedMessageHash();
+    }
+
+    function getPlayerXP(address player) external view returns (uint256) {
+        return playerStats[player].totalXp;
+    }
+
+    function getDailyMatches(address player) external view returns (uint32) {
+        PlayerStats storage stats = playerStats[player];
+        uint32 today = uint32(block.timestamp / DAY);
+        return stats.lastMatchDay == today ? stats.dailyMatches : 0;
+    }
+
+    function getStreakDays(address player) external view returns (uint32) {
+        return playerStats[player].streakDays;
     }
 
     // --- Admin ---------------------------------------------------------------
@@ -112,19 +264,7 @@ contract BotMatch is Ownable, ReentrancyGuard {
         uint256 amount = accumulatedFees;
         accumulatedFees = 0;
         (bool ok,) = to.call{value: amount}("");
-        require(ok, "transfer failed");
+        if (!ok) revert TransferFailed();
         emit FeesWithdrawn(to, amount);
     }
-
-    // --- Views ---------------------------------------------------------------
-
-    function getPlayerXP(address player) external view returns (uint256) {
-        return playerXP[player];
-    }
-
-    // --- Match lifecycle (implemented in follow-up phase) --------------------
-    //
-    // playBot(difficulty)                payable   -> open a new bot match
-    // recordResult(matchId, won, sig)    external  -> server-signed finalize
-    // getDailyMatches(address)           view      -> per-wallet daily usage
 }
