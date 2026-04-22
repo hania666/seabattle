@@ -26,6 +26,21 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
   const [claimError, setClaimError] = useState<string | undefined>();
   const socketRef = useRef<PvpSocket | null>(null);
   const currentStakeRef = useRef<StakeOption | null>(null);
+  const currentModeRef = useRef<"host" | "join" | null>(null);
+  // Kept in refs so socket handlers always see the latest wagmi / viem primitives
+  // without forcing `ensureSocket` to rebuild on every render.
+  const writeContractRef = useRef(writeContractAsync);
+  const publicClientRef = useRef(publicClient);
+  const addressRef = useRef(address);
+  useEffect(() => {
+    writeContractRef.current = writeContractAsync;
+  }, [writeContractAsync]);
+  useEffect(() => {
+    publicClientRef.current = publicClient;
+  }, [publicClient]);
+  useEffect(() => {
+    addressRef.current = address;
+  }, [address]);
 
   const hasLobbyContract = Boolean(BATTLESHIP_LOBBY_ADDRESS);
   const canStart = isConnected && hasLobbyContract;
@@ -36,26 +51,48 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
       s.on("queue:waiting", () => {
         /* already handled via stage */
       });
-      s.on("match:ready", (msg) => {
+      s.on("match:ready", async (msg) => {
         dispatch({
           type: "match_ready",
           matchId: msg.matchId,
           you: msg.you,
           opponent: msg.opponent,
         });
+        // Joiner path: the server paired us with a lobby. Call joinLobby
+        // on-chain now, then the server-side fleet phase can begin. Runs here
+        // (not in a useEffect) so the async chain isn't subject to effect
+        // cleanups racing with intermediate dispatches.
+        if (currentModeRef.current !== "join") return;
+        const stake = currentStakeRef.current;
+        if (!stake) return;
+        try {
+          const hash = await writeContractRef.current({
+            address: BATTLESHIP_LOBBY_ADDRESS as `0x${string}`,
+            abi: battleshipLobbyAbi,
+            functionName: "joinLobby",
+            args: [msg.matchId],
+            value: stake.wei,
+          });
+          dispatch({ type: "tx_join_sent", txHash: hash });
+          await publicClientRef.current?.waitForTransactionReceipt({ hash });
+          dispatch({ type: "tx_join_confirmed" });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       });
       s.on("match:start", (msg) => {
         dispatch({ type: "match_started", firstTurn: msg.firstTurn });
       });
       s.on("match:shot", (msg) => {
-        if (!address) return;
+        const own = addressRef.current;
+        if (!own) return;
         dispatch({
           type: "shot",
           by: msg.by,
           coord: [msg.row, msg.col],
           outcome: msg.outcome,
           sunkShipCells: msg.sunkShipCells,
-          ownAddress: address,
+          ownAddress: own,
         });
       });
       s.on("match:end", (msg) => {
@@ -74,7 +111,7 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     }
     if (!socketRef.current.connected) socketRef.current.connect();
     return socketRef.current;
-  }, [address]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -87,6 +124,7 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     async (mode: "host" | "join", stake: StakeOption) => {
       setError(null);
       currentStakeRef.current = stake;
+      currentModeRef.current = mode;
       if (!address) {
         setError("Connect your wallet first.");
         return;
@@ -128,37 +166,6 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     },
     [address, ensureSocket, publicClient, writeContractAsync],
   );
-
-  // Automatically run the joinLobby tx when we enter `txJoin`.
-  useEffect(() => {
-    if (stage.name !== "txJoin") return;
-    if (stage.txHash) return; // already sent
-    if (!publicClient) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const stake = currentStakeRef.current;
-        if (!stake) return;
-        const txHash = await writeContractAsync({
-          address: BATTLESHIP_LOBBY_ADDRESS as `0x${string}`,
-          abi: battleshipLobbyAbi,
-          functionName: "joinLobby",
-          args: [stage.matchId],
-          value: stake.wei,
-        });
-        if (cancelled) return;
-        dispatch({ type: "tx_join_sent", txHash });
-        await publicClient.waitForTransactionReceipt({ hash: txHash });
-        if (cancelled) return;
-        dispatch({ type: "tx_join_confirmed" });
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [stage, publicClient, writeContractAsync]);
 
   const handleFleetReady = useCallback(
     (board: Board) => {

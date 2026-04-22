@@ -12,10 +12,10 @@ describe("pvp reducer", () => {
     expect(s.name).toBe("txCreate");
 
     s = reduce(s, { type: "tx_create_confirmed", matchId: MATCH_ID });
-    expect(s).toMatchObject({ name: "queued", matchId: MATCH_ID });
+    expect(s).toMatchObject({ name: "queued", matchId: MATCH_ID, stakeId: "med" });
 
     s = reduce(s, { type: "match_ready", matchId: MATCH_ID, you: "A", opponent: OPP });
-    expect(s).toMatchObject({ name: "placement", you: "A", opponent: OPP });
+    expect(s).toMatchObject({ name: "placement", you: "A", opponent: OPP, stakeId: "med" });
   });
 
   it("join flow: select(join) -> queued -> match_ready -> txJoin -> placement", () => {
@@ -30,12 +30,33 @@ describe("pvp reducer", () => {
     expect(s.name).toBe("txJoin");
 
     s = reduce(s, { type: "tx_join_confirmed" });
-    expect(s).toMatchObject({ name: "placement", you: "B" });
+    expect(s).toMatchObject({ name: "placement", you: "B", stakeId: "med" });
+  });
+
+  it("stakeId is propagated from select all the way to claimed", () => {
+    let s: Stage = initialStage;
+    s = reduce(s, { type: "select_mode", mode: "host", stakeId: "high" });
+    s = reduce(s, { type: "tx_create_confirmed", matchId: MATCH_ID });
+    s = reduce(s, { type: "match_ready", matchId: MATCH_ID, you: "A", opponent: OPP });
+    s = reduce(s, { type: "fleet_submitted" });
+    expect(s).toMatchObject({ name: "waitingOpponentPlacement", stakeId: "high" });
+    s = reduce(s, { type: "match_started", firstTurn: ME });
+    expect(s).toMatchObject({ name: "playing", stakeId: "high" });
+    s = reduce(s, {
+      type: "match_ended",
+      winner: ME,
+      signature: null,
+      lobbyAddress: null,
+    });
+    expect(s).toMatchObject({ name: "ended", stakeId: "high" });
+    s = reduce(s, { type: "claim_confirmed" });
+    expect(s).toMatchObject({ name: "claimed", stakeId: "high" });
   });
 
   it("turn handover: miss swaps turn; hit keeps it", () => {
     let s: Stage = {
       name: "playing",
+      stakeId: "med",
       matchId: MATCH_ID,
       you: "A",
       opponent: OPP,
@@ -58,6 +79,7 @@ describe("pvp reducer", () => {
   it("match_ended transitions to ended with signature", () => {
     const playing: Stage = {
       name: "playing",
+      stakeId: "med",
       matchId: MATCH_ID,
       you: "A",
       opponent: OPP,

@@ -7,16 +7,21 @@ import type { Coord } from "../game/types";
 
 export type Mode = "host" | "join";
 
+interface Players {
+  you: "A" | "B";
+  opponent: `0x${string}`;
+}
+
 export type Stage =
   | { name: "select" }
   | { name: "txCreate"; stakeId: string; txHash?: `0x${string}` }
   | { name: "queued"; stakeId: string; matchId?: `0x${string}` }
-  | { name: "txJoin"; stakeId: string; matchId: `0x${string}`; you: "A" | "B"; opponent: `0x${string}`; txHash?: `0x${string}` }
-  | { name: "placement"; matchId: `0x${string}`; you: "A" | "B"; opponent: `0x${string}` }
-  | { name: "waitingOpponentPlacement"; matchId: `0x${string}`; you: "A" | "B"; opponent: `0x${string}` }
-  | { name: "playing"; matchId: `0x${string}`; you: "A" | "B"; opponent: `0x${string}`; turn: `0x${string}`; log: LogEntry[]; ownShots: ShotRecord[]; opponentShots: ShotRecord[] }
-  | { name: "ended"; matchId: `0x${string}`; you: "A" | "B"; winner: `0x${string}`; opponent: `0x${string}`; signature: `0x${string}` | null; lobbyAddress: `0x${string}` | null }
-  | { name: "claimed"; matchId: `0x${string}` }
+  | ({ name: "txJoin"; stakeId: string; matchId: `0x${string}`; txHash?: `0x${string}` } & Players)
+  | ({ name: "placement"; stakeId: string; matchId: `0x${string}` } & Players)
+  | ({ name: "waitingOpponentPlacement"; stakeId: string; matchId: `0x${string}` } & Players)
+  | ({ name: "playing"; stakeId: string; matchId: `0x${string}`; turn: `0x${string}`; log: LogEntry[]; ownShots: ShotRecord[]; opponentShots: ShotRecord[] } & Players)
+  | ({ name: "ended"; stakeId: string; matchId: `0x${string}`; winner: `0x${string}`; signature: `0x${string}` | null; lobbyAddress: `0x${string}` | null } & Players)
+  | { name: "claimed"; stakeId: string; matchId: `0x${string}` }
   | { name: "aborted"; reason: string };
 
 export interface ShotRecord {
@@ -68,6 +73,7 @@ export function reduce(state: Stage, action: Action): Stage {
         if (state.matchId) {
           return {
             name: "placement",
+            stakeId: state.stakeId,
             matchId: action.matchId,
             you: action.you,
             opponent: action.opponent,
@@ -91,6 +97,7 @@ export function reduce(state: Stage, action: Action): Stage {
       if (state.name !== "txJoin") return state;
       return {
         name: "placement",
+        stakeId: state.stakeId,
         matchId: state.matchId,
         you: state.you,
         opponent: state.opponent,
@@ -99,6 +106,7 @@ export function reduce(state: Stage, action: Action): Stage {
       if (state.name !== "placement") return state;
       return {
         name: "waitingOpponentPlacement",
+        stakeId: state.stakeId,
         matchId: state.matchId,
         you: state.you,
         opponent: state.opponent,
@@ -107,6 +115,7 @@ export function reduce(state: Stage, action: Action): Stage {
       if (state.name !== "waitingOpponentPlacement" && state.name !== "placement") return state;
       return {
         name: "playing",
+        stakeId: state.stakeId,
         matchId: state.matchId,
         you: state.you,
         opponent: state.opponent,
@@ -138,6 +147,7 @@ export function reduce(state: Stage, action: Action): Stage {
       if (state.name !== "playing") return state;
       return {
         name: "ended",
+        stakeId: state.stakeId,
         matchId: state.matchId,
         you: state.you,
         winner: action.winner,
@@ -147,7 +157,7 @@ export function reduce(state: Stage, action: Action): Stage {
       };
     case "claim_confirmed":
       if (state.name !== "ended") return state;
-      return { name: "claimed", matchId: state.matchId };
+      return { name: "claimed", stakeId: state.stakeId, matchId: state.matchId };
     case "abort":
       return { name: "aborted", reason: action.reason };
   }
