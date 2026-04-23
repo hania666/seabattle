@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "../../lib/i18n";
 
 const AUTO_ADVANCE_MS = 3800;
 
@@ -7,6 +8,7 @@ const AUTO_ADVANCE_MS = 3800;
  * Leaves on: tap / ENTER key / ENTER button / auto-advance after 3.8 s.
  */
 export function Splash({ onFinish }: { onFinish: () => void }) {
+  const t = useT();
   const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export function Splash({ onFinish }: { onFinish: () => void }) {
   return (
     <div
       role="dialog"
-      aria-label="Sea3Battle intro"
+      aria-label="SeaBattle intro"
       className={`fixed inset-0 z-[100] flex flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-[#04233a] via-[#0b3a5a] to-[#0a527a] text-sea-50 transition-opacity duration-500 ${
         leaving ? "opacity-0" : "opacity-100"
       }`}
@@ -163,10 +165,10 @@ export function Splash({ onFinish }: { onFinish: () => void }) {
       {/* Title */}
       <div className="relative z-10 mt-4 flex flex-col items-center">
         <h1 className="animate-fade-in font-display text-5xl font-bold tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)] sm:text-7xl">
-          Sea<span className="text-gold-300">3</span>Battle
+          Sea<span className="text-gold-300">Battle</span>
         </h1>
         <p className="mt-2 text-xs uppercase tracking-[0.5em] text-sea-200 sm:text-sm">
-          Stake · Play · Claim
+          {t("splash.tagline")}
         </p>
       </div>
 
@@ -175,7 +177,7 @@ export function Splash({ onFinish }: { onFinish: () => void }) {
         onClick={skip}
         className="relative z-10 mt-8 rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-8 py-3 font-display text-sm font-bold uppercase tracking-[0.3em] text-sea-950 shadow-glow-gold transition hover:scale-105 hover:from-gold-300 hover:to-gold-400 focus:outline-none focus:ring-2 focus:ring-gold-300 sm:text-base"
       >
-        Enter battle →
+        {t("splash.enter")} →
       </button>
 
       <span className="relative z-10 mt-4 text-[10px] tracking-widest text-sea-300/80">

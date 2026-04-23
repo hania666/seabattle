@@ -97,6 +97,17 @@ export default {
           "0%": { transform: "translateX(0%)" },
           "100%": { transform: "translateX(-50%)" },
         },
+        "plane-fly": {
+          "0%": { transform: "translateX(-20%) translateY(0px)" },
+          "50%": { transform: "translateX(60%) translateY(-6px)" },
+          "100%": { transform: "translateX(140%) translateY(0px)" },
+        },
+        "torpedo-sail": {
+          "0%": { transform: "translateX(-10%)", opacity: "0" },
+          "10%": { opacity: "1" },
+          "90%": { opacity: "1" },
+          "100%": { transform: "translateX(120%)", opacity: "0" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.35s ease-out both",
@@ -110,6 +121,8 @@ export default {
         "spin-slow": "spin-slow 18s linear infinite",
         "wiggle": "wiggle 2.5s ease-in-out infinite",
         "marquee": "marquee 30s linear infinite",
+        "plane-fly": "plane-fly 14s linear infinite",
+        "torpedo-sail": "torpedo-sail 6s linear infinite",
       },
     },
   },

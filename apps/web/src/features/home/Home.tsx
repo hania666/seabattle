@@ -3,16 +3,27 @@ import { useEffect, useState } from "react";
 import { loadStats, type PlayerStats } from "../../lib/stats";
 import { rankForXp, TONE_CLASSES } from "../../lib/ranks";
 import { sfx } from "../../lib/audio";
-import { SubmarineArt, CarrierArt, SeagullArt, CompassArt } from "./HomeArt";
+import { useT } from "../../lib/i18n";
+import {
+  SubmarineArt,
+  CarrierArt,
+  SeagullArt,
+  CompassArt,
+  WarSceneArt,
+  PlaneArt,
+  TorpedoArt,
+} from "./HomeArt";
 
 interface Props {
   onPvE: () => void;
   onPvP: () => void;
   onProfile: () => void;
   onLeaderboard: () => void;
+  onShop: () => void;
 }
 
-export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
+export function Home({ onPvE, onPvP, onProfile, onLeaderboard, onShop }: Props) {
+  const t = useT();
   const { address } = useAccount();
   const [stats, setStats] = useState<PlayerStats>(() => loadStats(address));
 
@@ -44,45 +55,92 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
         <SeagullArt className="h-4 w-10 text-sea-100" />
       </div>
 
+      {/* Biplane cruising across the top */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-2 hidden h-10 overflow-hidden md:block"
+        aria-hidden
+      >
+        <div className="h-full animate-plane-fly">
+          <PlaneArt className="h-10 w-28 opacity-80" />
+        </div>
+      </div>
+
       {/* Hero row — submarine + title + carrier */}
       <section className="grid gap-6 md:grid-cols-[1fr_auto_1fr] md:items-center">
-        <div className="hidden md:block" aria-hidden>
+        <div className="relative hidden md:block" aria-hidden>
           <SubmarineArt className="h-40 w-full animate-float-medium" />
+          {/* Torpedo trail from submarine */}
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 hidden h-5 overflow-hidden md:block">
+            <div className="h-full animate-torpedo-sail">
+              <TorpedoArt className="h-5 w-20 opacity-85" />
+            </div>
+          </div>
         </div>
 
         <div className="animate-fade-in flex flex-col items-center text-center">
           <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-sea-300">
-            Pre-alpha · Abstract Testnet
+            {t("brand.era")}
           </p>
           <h1 className="mt-3 font-display text-5xl font-black leading-[0.95] text-sea-50 sm:text-7xl">
             <span className="inline-block animate-wiggle bg-gradient-to-br from-gold-200 via-gold-400 to-gold-600 bg-clip-text text-transparent drop-shadow-[0_4px_12px_rgba(250,204,21,0.25)]">
-              SEA3
+              {t("home.title1")}
             </span>
             <br />
             <span className="bg-gradient-to-br from-sea-100 via-sea-300 to-sea-500 bg-clip-text text-transparent">
-              BATTLE
+              {t("home.title2")}
             </span>
           </h1>
           <p className="mt-4 max-w-md text-sm text-sea-100/90 sm:text-base">
-            Stake, play, claim. Winner takes{" "}
-            <strong className="text-gold-300">95 %</strong> of the pot on-chain.
-            PvE mode is practically free — just gas, beat bots, climb from Юнга to Адмирал.
+            {t("home.pitch", { pct: "95 %" })}
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <PrimaryCTA onClick={() => { sfx.click(); onPvE(); }} data-testid="home-pve">
-              ENTER BATTLE
+            <PrimaryCTA
+              onClick={() => {
+                sfx.click();
+                onPvE();
+              }}
+              data-testid="home-pve"
+            >
+              {t("home.cta.enter")}
             </PrimaryCTA>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs">
-            <ChipButton onClick={() => { sfx.click(); onPvP(); }} data-testid="home-pvp">
-              PvP arena
+            <ChipButton
+              onClick={() => {
+                sfx.click();
+                onPvP();
+              }}
+              data-testid="home-pvp"
+            >
+              {t("nav.pvp")}
             </ChipButton>
-            <ChipButton onClick={() => { sfx.click(); onLeaderboard(); }} data-testid="home-leaderboard">
-              Leaderboard
+            <ChipButton
+              onClick={() => {
+                sfx.click();
+                onLeaderboard();
+              }}
+              data-testid="home-leaderboard"
+            >
+              {t("nav.leaderboard")}
             </ChipButton>
-            <ChipButton onClick={() => { sfx.click(); onProfile(); }} data-testid="home-profile">
-              Profile
+            <ChipButton
+              onClick={() => {
+                sfx.click();
+                onShop();
+              }}
+              data-testid="home-shop"
+            >
+              {t("nav.shop")}
+            </ChipButton>
+            <ChipButton
+              onClick={() => {
+                sfx.click();
+                onProfile();
+              }}
+              data-testid="home-profile"
+            >
+              {t("nav.profile")}
             </ChipButton>
           </div>
         </div>
@@ -90,6 +148,11 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
         <div className="hidden md:block" aria-hidden>
           <CarrierArt className="h-40 w-full animate-float-slow" />
         </div>
+      </section>
+
+      {/* Live war scene (spans full width under hero) */}
+      <section className="relative overflow-hidden rounded-2xl border border-sea-800/60 bg-sea-950/40 px-3 py-2">
+        <WarSceneArt className="h-28 w-full sm:h-36" />
       </section>
 
       {/* Current rank strip */}
@@ -105,16 +168,23 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
             <div className="flex-1">
               <div className="flex items-baseline justify-between">
                 <div>
-                  <div className="text-xs uppercase tracking-widest text-sea-300">Your rank</div>
+                  <div className="text-xs uppercase tracking-widest text-sea-300">
+                    {t("home.yourRank")}
+                  </div>
                   <div className="font-display text-2xl font-bold text-sea-50">
                     {progress.rank.label}
                   </div>
                 </div>
                 <div className="text-right text-sm text-sea-200">
-                  <div className="font-semibold text-gold-300">{stats.xp.toLocaleString()} XP</div>
+                  <div className="font-semibold text-gold-300">
+                    {stats.xp.toLocaleString()} XP
+                  </div>
                   {progress.next && (
                     <div className="text-[11px] text-sea-300/80">
-                      {progress.xpForNext - progress.xpIntoRank} to {progress.next.label}
+                      {t("home.xpTo", {
+                        n: progress.xpForNext - progress.xpIntoRank,
+                        rank: progress.next.label,
+                      })}
                     </div>
                   )}
                 </div>
@@ -131,40 +201,64 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
       </section>
 
       {/* Mode tiles */}
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <ModeTile
-          title="PLAY vs BOT"
-          subtitle="Free XP, dust fee"
-          description="Easy is free. Normal/Hard cost pennies of testnet ETH. Sink the bot, rack up XP, rank up."
-          cta="PLAY"
+          title={t("home.tile.pve.title")}
+          subtitle={t("home.tile.pve.sub")}
+          description={t("home.tile.pve.desc")}
+          cta={t("home.tile.pve.cta")}
           tone="sea"
           stat={`${stats.pveWins}W · ${stats.pveLosses}L`}
-          onClick={() => { sfx.click(); onPvE(); }}
+          onClick={() => {
+            sfx.click();
+            onPvE();
+          }}
         />
         <ModeTile
-          title="PvP ARENA"
-          subtitle="Stake · play · claim"
-          description="Pick a stake from 0.001 to 0.01 ETH. Winner claims 95 % of the pot with one transaction."
-          cta="HOST / JOIN"
+          title={t("home.tile.pvp.title")}
+          subtitle={t("home.tile.pvp.sub")}
+          description={t("home.tile.pvp.desc")}
+          cta={t("home.tile.pvp.cta")}
           tone="gold"
           highlight
           stat={`${stats.pvpWins}W · ${stats.pvpLosses}L`}
-          onClick={() => { sfx.click(); onPvP(); }}
+          onClick={() => {
+            sfx.click();
+            onPvP();
+          }}
         />
         <ModeTile
-          title="LEADERBOARD"
-          subtitle="Global ranks"
-          description="Top captains ranked by XP. Your spot updates after every match. Daily & all-time boards."
-          cta="VIEW"
+          title={t("home.tile.shop.title")}
+          subtitle={t("home.tile.shop.sub")}
+          description={t("home.tile.shop.desc")}
+          cta={t("home.tile.shop.cta")}
           tone="coral"
           stat={`${stats.xp.toLocaleString()} XP`}
-          onClick={() => { sfx.click(); onLeaderboard(); }}
+          onClick={() => {
+            sfx.click();
+            onShop();
+          }}
+        />
+        <ModeTile
+          title={t("home.tile.leaderboard.title")}
+          subtitle={t("home.tile.leaderboard.sub")}
+          description={t("home.tile.leaderboard.desc")}
+          cta={t("home.tile.leaderboard.cta")}
+          tone="sea"
+          stat={`${stats.xp.toLocaleString()} XP`}
+          onClick={() => {
+            sfx.click();
+            onLeaderboard();
+          }}
         />
       </section>
 
       {/* Info strip */}
       <section className="relative overflow-hidden rounded-2xl border border-sea-800/60 bg-sea-950/50 px-5 py-4">
-        <div className="absolute left-3 top-1/2 hidden -translate-y-1/2 sm:block" aria-hidden>
+        <div
+          className="absolute left-3 top-1/2 hidden -translate-y-1/2 sm:block"
+          aria-hidden
+        >
           <CompassArt className="h-16 w-16 animate-spin-slow opacity-80" />
         </div>
         <div className="flex overflow-hidden sm:pl-24">
@@ -258,71 +352,64 @@ function ModeTile({
   const toneClasses = {
     sea: {
       frame: "border-sea-400/60",
-      pill: "bg-sea-500 text-sea-950",
-      ctaBg: "bg-gradient-to-br from-sea-300 to-sea-500 text-sea-950",
+      cta: "bg-gradient-to-br from-sea-300 to-sea-500 text-sea-950 hover:shadow-glow",
     },
     gold: {
       frame: "border-gold-400/70",
-      pill: "bg-gold-400 text-sea-950",
-      ctaBg: "bg-gradient-to-br from-gold-300 to-gold-600 text-sea-950",
+      cta: "bg-gradient-to-br from-gold-300 to-gold-500 text-sea-950 hover:shadow-glow-gold",
     },
     coral: {
       frame: "border-coral-400/60",
-      pill: "bg-coral-400 text-sea-950",
-      ctaBg: "bg-gradient-to-br from-coral-300 to-coral-500 text-sea-950",
+      cta: "bg-gradient-to-br from-coral-400 to-coral-500 text-sea-950 hover:shadow-glow-coral",
     },
-  }[tone];
-
+  } as const;
+  const cls = toneClasses[tone];
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`group relative flex flex-col items-start gap-3 overflow-hidden rounded-2xl border-2 bg-arcade-tile p-5 text-left transition hover:-translate-y-1 hover:shadow-glow focus:outline-none focus:ring-4 focus:ring-sea-300/30 ${toneClasses.frame} ${
+      className={`group flex flex-col gap-2 rounded-2xl border bg-arcade-tile p-5 text-left transition hover:-translate-y-0.5 hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-sea-300/40 ${cls.frame} ${
         highlight ? "animate-pulse-glow" : ""
       }`}
     >
-      <span
-        className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest ${toneClasses.pill}`}
-      >
-        {subtitle}
-      </span>
-      <h3 className="font-display text-2xl font-black text-sea-50 drop-shadow">{title}</h3>
-      <p className="text-sm text-sea-100/85">{description}</p>
-      <div className="mt-auto flex w-full items-center justify-between pt-3">
-        <span className="rounded-md bg-sea-950/60 px-2 py-1 text-[11px] font-mono text-sea-200 ring-1 ring-sea-700/60">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-sea-300">
+            {subtitle}
+          </div>
+          <div className="font-display text-xl font-bold text-sea-50">{title}</div>
+        </div>
+        <span className="rounded-full bg-sea-950/70 px-2 py-0.5 text-[11px] font-semibold text-sea-200">
           {stat}
         </span>
-        <span
-          className={`rounded-xl px-4 py-1.5 text-sm font-bold uppercase tracking-wider transition group-hover:scale-105 ${toneClasses.ctaBg}`}
-        >
-          {cta} →
-        </span>
       </div>
+      <p className="text-xs leading-relaxed text-sea-200/90">{description}</p>
+      <span
+        className={`mt-auto inline-flex w-fit items-center rounded-xl px-3 py-1.5 text-xs font-black uppercase tracking-wide transition ${cls.cta}`}
+      >
+        {cta} →
+      </span>
     </button>
   );
 }
 
 function FireIcon() {
   return (
-    <svg aria-hidden viewBox="0 0 20 20" className="h-5 w-5">
+    <svg viewBox="0 0 20 20" aria-hidden className="h-6 w-6 drop-shadow">
       <path
-        d="M10 2c1 3-1 4-1 6s2 1 2 3-2 3-3 3c-2 0-4-1.8-4-4 0-1 .5-1.5 1-2 0 1 1 1 1 0 0-2 1-4 4-6z"
-        fill="#7c2d12"
+        d="M10 1c1 3 5 5 5 9a5 5 0 01-10 0c0-1 .5-2.2 1.5-3 .3 1 .7 1.5 1.5 2 0-2 0-4 2-8z"
+        fill="#b91c1c"
       />
-      <path
-        d="M10 3c0 2-1.5 3.5-1.5 5 0 .8.5 1.2 1 1.2 1 0 1.5-.5 1.5-1.5 1 .8 2 1.8 2 3.3 0 1.8-1.2 3-3 3-1.5 0-2.5-1-2.5-2.3 0-.7.3-1 .8-1.3-.5 2 1.3 2.3 1.8 1.2.5-1.2-.7-1.7-.7-3 0-2 .8-3.5 2.6-5.6z"
-        fill="#f97316"
-      />
+      <path d="M10 6c.5 2 2.5 3 2.5 5a2.5 2.5 0 11-5 0c0-.5.3-1 .8-1.5.2.5.4.8.7 1 0-1 0-2 1-4.5z" fill="#fbbf24" />
     </svg>
   );
 }
 
 function RankInsignia({ className }: { className?: string }) {
   return (
-    <svg aria-hidden viewBox="0 0 40 40" className={className}>
-      <path d="M4 16 L20 4 L36 16 L20 28 Z" fill="currentColor" opacity="0.95" />
-      <path d="M8 18 L20 10 L32 18 L20 26 Z" fill="currentColor" opacity="0.7" />
-      <path d="M10 30 L30 30 L28 36 L12 36 Z" fill="currentColor" opacity="0.85" />
+    <svg aria-hidden viewBox="0 0 32 32" className={className} fill="currentColor">
+      <path d="M16 3l3.5 6.5 7 1L21 15.5l1.2 7L16 19l-6.2 3.5L11 15.5 5.5 10.5l7-1L16 3z" />
+      <rect x="13" y="20" width="6" height="9" rx="1.5" />
     </svg>
   );
 }

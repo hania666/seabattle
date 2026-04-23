@@ -6,8 +6,10 @@ import { Splash } from "./features/splash/Splash";
 import { splashSeen } from "./features/splash/splashState";
 import { Hud } from "./components/Hud";
 import { SettingsModal } from "./components/SettingsModal";
+import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Home } from "./features/home/Home";
 import { sfx } from "./lib/audio";
+import { useT } from "./lib/i18n";
 
 const PveScreen = lazy(() =>
   import("./features/pve/PveScreen").then((m) => ({ default: m.PveScreen })),
@@ -23,10 +25,14 @@ const LeaderboardScreen = lazy(() =>
     default: m.LeaderboardScreen,
   })),
 );
+const ShopScreen = lazy(() =>
+  import("./features/shop/ShopScreen").then((m) => ({ default: m.ShopScreen })),
+);
 
-type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard";
+type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard" | "shop";
 
 export default function App() {
+  const t = useT();
   const { login } = useLoginWithAbstract();
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
@@ -49,21 +55,21 @@ export default function App() {
             type="button"
             onClick={() => goto("home")}
             className="flex items-center gap-2 font-display text-xl font-bold tracking-tight text-sea-50 hover:text-sea-200 sm:text-2xl"
-            aria-label="Sea3Battle home"
+            aria-label={`${t("brand.name")} ${t("nav.home")}`}
           >
             <LogoMark />
-            Sea<span className="text-sea-300">3</span>
-            <span className="hidden text-sea-100 sm:inline">Battle</span>
+            {t("brand.name")}
           </button>
           <div className="flex items-center gap-2">
             <Hud />
+            <LanguageSwitcher />
             <button
               type="button"
               onClick={() => {
                 sfx.click();
                 setSettingsOpen(true);
               }}
-              aria-label="Open settings"
+              aria-label={t("nav.settings")}
               className="rounded-full bg-sea-900/60 p-2 text-sea-200 ring-1 ring-sea-700/60 hover:bg-sea-800/80 hover:text-sea-100"
             >
               <GearIcon />
@@ -78,7 +84,7 @@ export default function App() {
               }`}
               data-testid="nav-profile"
             >
-              Profile
+              {t("nav.profile")}
             </button>
             {isConnected ? (
               <button
@@ -88,7 +94,7 @@ export default function App() {
                 data-testid="disconnect-button"
               >
                 <span className="font-mono">{shortAddress(address)}</span>
-                <span className="hidden sm:inline"> · Disconnect</span>
+                <span className="hidden sm:inline"> · {t("nav.disconnect")}</span>
               </button>
             ) : (
               <button
@@ -97,7 +103,7 @@ export default function App() {
                 className="rounded-lg bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 px-3 py-2 text-xs font-bold uppercase tracking-wide text-sea-950 shadow-glow-gold hover:shadow-[0_0_32px_rgba(250,204,21,0.55)] sm:px-4 sm:text-sm"
                 data-testid="connect-button"
               >
-                Connect
+                {t("nav.connect")}
               </button>
             )}
           </div>
@@ -111,6 +117,7 @@ export default function App() {
                 onPvP={() => goto("pvp")}
                 onProfile={() => goto("profile")}
                 onLeaderboard={() => goto("leaderboard")}
+                onShop={() => goto("shop")}
               />
             )}
             {screen === "pve" && <PveScreen onExit={() => goto("home")} />}
@@ -125,6 +132,7 @@ export default function App() {
             {screen === "leaderboard" && (
               <LeaderboardScreen onExit={() => goto("home")} />
             )}
+            {screen === "shop" && <ShopScreen onExit={() => goto("home")} />}
           </Suspense>
         </main>
 
