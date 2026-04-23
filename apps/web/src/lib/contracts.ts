@@ -3,6 +3,63 @@ export const BATTLESHIP_LOBBY_ADDRESS = (import.meta.env.VITE_BATTLESHIP_LOBBY_A
   | `0x${string}`
   | "";
 
+export const battleshipLobbyAbi = [
+  {
+    type: "function",
+    name: "createLobby",
+    stateMutability: "payable",
+    inputs: [],
+    outputs: [{ name: "matchId", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "joinLobby",
+    stateMutability: "payable",
+    inputs: [{ name: "matchId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "claimWin",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "matchId", type: "bytes32" },
+      { name: "winner", type: "address" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "claimTimeout",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "matchId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "lobbies",
+    stateMutability: "view",
+    inputs: [{ name: "matchId", type: "bytes32" }],
+    outputs: [
+      { name: "playerA", type: "address" },
+      { name: "playerB", type: "address" },
+      { name: "stake", type: "uint256" },
+      { name: "createdAt", type: "uint64" },
+      { name: "status", type: "uint8" },
+    ],
+  },
+  {
+    type: "event",
+    name: "LobbyCreated",
+    inputs: [
+      { name: "matchId", type: "bytes32", indexed: true },
+      { name: "playerA", type: "address", indexed: true },
+      { name: "stake", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
 export const botMatchAbi = [
   {
     type: "function",
