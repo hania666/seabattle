@@ -22,7 +22,14 @@ export type Stage =
   | ({ name: "playing"; stakeId: string; matchId: `0x${string}`; turn: `0x${string}`; log: LogEntry[]; ownShots: ShotRecord[]; opponentShots: ShotRecord[] } & Players)
   | ({ name: "ended"; stakeId: string; matchId: `0x${string}`; winner: `0x${string}`; signature: `0x${string}` | null; lobbyAddress: `0x${string}` | null } & Players)
   | { name: "claimed"; stakeId: string; matchId: `0x${string}` }
-  | { name: "aborted"; reason: string };
+  | {
+      name: "aborted";
+      reason: string;
+      // Present if we reached an on-chain stage before the abort — so the UI
+      // can offer a `claimTimeout` refund.
+      stakeId?: string;
+      matchId?: `0x${string}`;
+    };
 
 export interface ShotRecord {
   coord: Coord;
@@ -158,7 +165,12 @@ export function reduce(state: Stage, action: Action): Stage {
     case "claim_confirmed":
       if (state.name !== "ended") return state;
       return { name: "claimed", stakeId: state.stakeId, matchId: state.matchId };
-    case "abort":
-      return { name: "aborted", reason: action.reason };
+    case "abort": {
+      // Carry forward matchId/stakeId if we have them so the aborted screen
+      // can offer a claimTimeout refund.
+      const stakeId = "stakeId" in state ? state.stakeId : undefined;
+      const matchId = "matchId" in state && typeof state.matchId === "string" ? state.matchId : undefined;
+      return { name: "aborted", reason: action.reason, stakeId, matchId };
+    }
   }
 }

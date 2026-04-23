@@ -102,4 +102,31 @@ describe("pvp reducer", () => {
     const s = reduce({ name: "queued", stakeId: "med" }, { type: "abort", reason: "opponent left" });
     expect(s).toMatchObject({ name: "aborted", reason: "opponent left" });
   });
+
+  it("abort carries forward matchId + stakeId from an on-chain stage for refund UI", () => {
+    const playing: Stage = {
+      name: "playing",
+      stakeId: "high",
+      matchId: MATCH_ID,
+      you: "A",
+      opponent: OPP,
+      turn: ME,
+      log: [],
+      ownShots: [],
+      opponentShots: [],
+    };
+    const s = reduce(playing, { type: "abort", reason: "Opponent disconnected" });
+    expect(s).toMatchObject({
+      name: "aborted",
+      reason: "Opponent disconnected",
+      stakeId: "high",
+      matchId: MATCH_ID,
+    });
+  });
+
+  it("abort before any on-chain stage has no matchId", () => {
+    const s = reduce(initialStage, { type: "abort", reason: "unexpected" });
+    expect(s).toMatchObject({ name: "aborted", reason: "unexpected" });
+    expect((s as { matchId?: string }).matchId).toBeUndefined();
+  });
 });

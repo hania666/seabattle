@@ -1,5 +1,6 @@
 import type { Difficulty } from "../../lib/game/types";
 import { DIFFICULTY_LABELS, DIFFICULTY_XP } from "../../lib/game/types";
+import { Button, TxLink } from "../../components/ui";
 
 interface Props {
   won: boolean;
@@ -23,12 +24,12 @@ export function ResultScreen({ won, difficulty, stats, txHash, onPlayAgain, onHo
         <p className="text-sm font-semibold uppercase tracking-[0.3em]">
           {won ? "Victory" : "Defeat"}
         </p>
-        <h2 className="font-display text-4xl">
+        <h2 className="font-display text-3xl sm:text-4xl">
           {won ? "All enemy ships sunk" : "Your fleet is gone"}
         </h2>
       </div>
 
-      <ul className="grid grid-cols-2 gap-3 text-sm">
+      <ul className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <Stat label="Difficulty" value={DIFFICULTY_LABELS[difficulty]} />
         <Stat label="XP earned" value={won ? `+${xp}` : "0"} />
         <Stat label="Your shots" value={String(stats.playerShots)} />
@@ -37,31 +38,17 @@ export function ResultScreen({ won, difficulty, stats, txHash, onPlayAgain, onHo
 
       {txHash && (
         <p className="text-xs text-sea-400">
-          Entry tx:{" "}
-          <a
-            href={`https://sepolia.abscan.org/tx/${txHash}`}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-sea-200 underline-offset-4 hover:underline"
-          >
-            {txHash.slice(0, 10)}…{txHash.slice(-6)}
-          </a>
+          Entry tx: <TxLink hash={txHash} />
         </p>
       )}
 
-      <div className="flex justify-center gap-3">
-        <button
-          onClick={onPlayAgain}
-          className="rounded-lg bg-sea-300 px-5 py-2 text-sm font-semibold text-sea-950 hover:bg-sea-200"
-        >
+      <div className="flex flex-wrap justify-center gap-3">
+        <Button variant="primary" size="lg" onClick={onPlayAgain} data-testid="result-play-again">
           Play again
-        </button>
-        <button
-          onClick={onHome}
-          className="rounded-lg border border-sea-700 px-5 py-2 text-sm font-semibold text-sea-200 hover:bg-sea-800"
-        >
+        </Button>
+        <Button variant="ghost" size="lg" onClick={onHome} data-testid="result-home">
           Home
-        </button>
+        </Button>
       </div>
     </div>
   );

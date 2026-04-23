@@ -81,8 +81,9 @@ functions, `ECDSA.recover` to verify server-signed match results, and a
 - **Testnet:** Abstract Sepolia (chain id 11124)
 - **Mainnet:** Abstract Mainnet (chain id 2741)
 
-Deploy scripts live in `apps/contracts/script/`. The frontend is deployed to
-Vercel and the backend to Railway — both deploy automatically from `main`.
+Deploy scripts live in `apps/contracts/script/`. End-to-end deployment runbook
+(faucets, contracts, backend, frontend, smoke-test checklist) is in
+[`docs/PHASE_6_DEPLOY.md`](docs/PHASE_6_DEPLOY.md).
 
 ## License
 
