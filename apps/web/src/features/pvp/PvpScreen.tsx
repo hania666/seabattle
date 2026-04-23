@@ -11,11 +11,14 @@ import { StakeSelect } from "./StakeSelect";
 import { ShipPlacement } from "../pve/ShipPlacement";
 import { PvpGameBoard } from "./PvpGameBoard";
 import { PvpResultScreen } from "./PvpResultScreen";
+import { BackLink, Button, StatusCard, TxLink, useToast } from "../../components/ui";
+import { errMessage, shortAddress, shortHash } from "../../lib/format";
 
 export function PvpScreen({ onExit }: { onExit: () => void }) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
+  const toast = useToast();
 
   const [stage, dispatch] = useReducer(reduce, initialStage);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +27,9 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [claimError, setClaimError] = useState<string | undefined>();
+  const [refundTxHash, setRefundTxHash] = useState<`0x${string}` | undefined>();
+  const [refunding, setRefunding] = useState(false);
+  const [refundError, setRefundError] = useState<string | undefined>();
   const socketRef = useRef<PvpSocket | null>(null);
   const currentStakeRef = useRef<StakeOption | null>(null);
   const currentModeRef = useRef<"host" | "join" | null>(null);
@@ -32,6 +38,7 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
   const writeContractRef = useRef(writeContractAsync);
   const publicClientRef = useRef(publicClient);
   const addressRef = useRef(address);
+  const toastRef = useRef(toast);
   useEffect(() => {
     writeContractRef.current = writeContractAsync;
   }, [writeContractAsync]);
@@ -41,6 +48,9 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
   useEffect(() => {
     addressRef.current = address;
   }, [address]);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   const hasLobbyContract = Boolean(BATTLESHIP_LOBBY_ADDRESS);
   const canStart = isConnected && hasLobbyContract;
@@ -77,7 +87,9 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
           await publicClientRef.current?.waitForTransactionReceipt({ hash });
           dispatch({ type: "tx_join_confirmed" });
         } catch (e) {
-          setError(e instanceof Error ? e.message : String(e));
+          const msg = errMessage(e);
+          setError(msg);
+          toastRef.current.push({ tone: "error", title: "joinLobby failed", message: msg });
         }
       });
       s.on("match:start", (msg) => {
@@ -104,9 +116,25 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
         });
       });
       s.on("match:opponentLeft", () => {
+        toastRef.current.push({
+          tone: "error",
+          title: "Opponent left",
+          message: "Your opponent disconnected. If you staked, you can refund via claimTimeout.",
+        });
         dispatch({ type: "abort", reason: "Opponent disconnected" });
       });
-      s.on("error", (msg) => setError(msg.message));
+      s.on("error", (msg) => {
+        setError(msg.message);
+        toastRef.current.push({ tone: "error", title: "Server error", message: msg.message });
+      });
+      s.on("disconnect", (reason) => {
+        if (reason === "io client disconnect") return;
+        toastRef.current.push({
+          tone: "error",
+          title: "Disconnected",
+          message: "Lost connection to the matchmaking server. Try again.",
+        });
+      });
       socketRef.current = s;
     }
     if (!socketRef.current.connected) socketRef.current.connect();
@@ -161,10 +189,12 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
           });
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        const msg = errMessage(e);
+        setError(msg);
+        toast.push({ tone: "error", title: "Transaction failed", message: msg });
       }
     },
-    [address, ensureSocket, publicClient, writeContractAsync],
+    [address, ensureSocket, publicClient, toast, writeContractAsync],
   );
 
   const handleFleetReady = useCallback(
@@ -201,16 +231,42 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
       setClaimTxHash(hash);
       await publicClient?.waitForTransactionReceipt({ hash });
       setClaimed(true);
+      toast.push({ tone: "success", title: "Pot claimed", message: "95 % of the pot is in your wallet." });
       // Intentionally do NOT dispatch `claim_confirmed` here — we want to keep
       // the stage on `ended` so `PvpResultScreen` stays mounted and can show
       // the claim tx hash + Abscan link. Transitioning to `claimed` would
       // unmount the result screen and hide the block-explorer link.
     } catch (e) {
-      setClaimError(e instanceof Error ? e.message : String(e));
+      const msg = errMessage(e);
+      setClaimError(msg);
+      toast.push({ tone: "error", title: "Claim failed", message: msg });
     } finally {
       setClaiming(false);
     }
-  }, [stage, writeContractAsync, publicClient]);
+  }, [stage, writeContractAsync, publicClient, toast]);
+
+  const handleRefund = useCallback(async () => {
+    if (stage.name !== "aborted" || !stage.matchId || !BATTLESHIP_LOBBY_ADDRESS) return;
+    setRefunding(true);
+    setRefundError(undefined);
+    try {
+      const hash = await writeContractAsync({
+        address: BATTLESHIP_LOBBY_ADDRESS as `0x${string}`,
+        abi: battleshipLobbyAbi,
+        functionName: "claimTimeout",
+        args: [stage.matchId],
+      });
+      setRefundTxHash(hash);
+      await publicClient?.waitForTransactionReceipt({ hash });
+      toast.push({ tone: "success", title: "Refund claimed", message: "Your stake has been returned." });
+    } catch (e) {
+      const msg = errMessage(e);
+      setRefundError(msg);
+      toast.push({ tone: "error", title: "Refund failed", message: msg });
+    } finally {
+      setRefunding(false);
+    }
+  }, [stage, writeContractAsync, publicClient, toast]);
 
   // --- Render -------------------------------------------------------------
 
@@ -231,16 +287,21 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     );
   }
 
-  const stake = findStake("stakeId" in stage ? stage.stakeId : STAKE_OPTIONS[0].id) ?? STAKE_OPTIONS[0];
+  const stakeId = "stakeId" in stage ? stage.stakeId : undefined;
+  const stake = (stakeId && findStake(stakeId)) || STAKE_OPTIONS[0];
 
   if (stage.name === "txCreate" || stage.name === "txJoin") {
     return (
       <StatusCard title={stage.name === "txCreate" ? "Creating lobby…" : "Joining lobby…"}>
-        {error ? <p className="text-sm text-red-300">{error}</p> : <p>Approve the transaction in your wallet.</p>}
-        {"txHash" in stage && stage.txHash && (
-          <p className="font-mono text-xs text-sea-400">tx: {stage.txHash.slice(0, 12)}…</p>
+        {error ? (
+          <p className="text-sm text-red-300">{error}</p>
+        ) : (
+          <p className="text-sm text-sea-300">Approve the transaction in your wallet.</p>
         )}
-        <BackButton onClick={onExit} />
+        {"txHash" in stage && stage.txHash && <TxLink hash={stage.txHash} label="tx" />}
+        <div className="pt-2">
+          <BackLink onClick={onExit} />
+        </div>
       </StatusCard>
     );
   }
@@ -253,17 +314,27 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
           automatically.
         </p>
         {stage.matchId && (
-          <p className="font-mono text-[11px] text-sea-500">matchId: {stage.matchId.slice(0, 18)}…</p>
+          <p className="font-mono text-[11px] text-sea-500">matchId: {shortHash(stage.matchId)}</p>
         )}
         {error && <p className="text-sm text-red-300">{error}</p>}
-        <BackButton onClick={onExit} />
+        <div className="pt-2">
+          <BackLink onClick={onExit} />
+        </div>
       </StatusCard>
     );
   }
 
   if (stage.name === "placement") {
     return (
-      <ShipPlacement onReady={handleFleetReady} onBack={onExit} />
+      <div className="space-y-4">
+        <MatchHeader
+          stakeEth={stake.eth}
+          matchId={stage.matchId}
+          opponent={stage.opponent}
+          label="Place your fleet"
+        />
+        <ShipPlacement onReady={handleFleetReady} onBack={onExit} />
+      </div>
     );
   }
 
@@ -271,8 +342,13 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     return (
       <StatusCard title="Fleet submitted">
         <p className="text-sm text-sea-300">Waiting for opponent to place their fleet…</p>
+        <p className="text-xs text-sea-400">
+          vs <span className="font-mono">{shortAddress(stage.opponent)}</span>
+        </p>
         {error && <p className="text-sm text-red-300">{error}</p>}
-        <BackButton onClick={onExit} />
+        <div className="pt-2">
+          <BackLink onClick={onExit} />
+        </div>
       </StatusCard>
     );
   }
@@ -281,14 +357,22 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     const myTurn = stage.turn.toLowerCase() === address?.toLowerCase();
     const turnLabel = myTurn ? "Your shot" : "Opponent's turn";
     return (
-      <PvpGameBoard
-        ownBoard={ownBoard}
-        ownShots={stage.ownShots}
-        opponentShots={stage.opponentShots}
-        canFire={myTurn}
-        onFire={handleFire}
-        turnLabel={turnLabel}
-      />
+      <div className="space-y-4">
+        <MatchHeader
+          stakeEth={stake.eth}
+          matchId={stage.matchId}
+          opponent={stage.opponent}
+          label={turnLabel}
+        />
+        <PvpGameBoard
+          ownBoard={ownBoard}
+          ownShots={stage.ownShots}
+          opponentShots={stage.opponentShots}
+          canFire={myTurn}
+          onFire={handleFire}
+          turnLabel={turnLabel}
+        />
+      </div>
     );
   }
 
@@ -304,6 +388,8 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
         claimed={claimed}
         claimTxHash={claimTxHash}
         claimError={claimError}
+        opponent={stage.opponent}
+        matchId={stage.matchId}
         onClaim={handleClaim}
         onExit={onExit}
       />
@@ -311,10 +397,37 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
   }
 
   if (stage.name === "aborted") {
+    const canRefund = Boolean(stage.matchId && BATTLESHIP_LOBBY_ADDRESS) && !refundTxHash;
     return (
-      <StatusCard title="Match aborted">
-        <p className="text-sm text-sea-300">{stage.reason}. You can still call <code>claimTimeout</code> after the timeout window if you staked.</p>
-        <BackButton onClick={onExit} />
+      <StatusCard title="Match aborted" tone="danger">
+        <p className="text-sm text-sea-200">{stage.reason}.</p>
+        <p className="text-xs text-sea-300">
+          If you locked a stake on-chain, call <code>claimTimeout</code> after the 30 min timeout
+          window to refund it.
+        </p>
+        {stage.matchId && (
+          <p className="font-mono text-[11px] text-sea-500">matchId: {shortHash(stage.matchId)}</p>
+        )}
+        {canRefund && (
+          <Button
+            size="md"
+            variant="primary"
+            onClick={handleRefund}
+            disabled={refunding}
+            data-testid="refund-button"
+          >
+            {refunding ? "Refunding…" : "Claim timeout refund"}
+          </Button>
+        )}
+        {refundTxHash && (
+          <p className="text-xs text-sea-300">
+            Refund submitted. <TxLink hash={refundTxHash} />
+          </p>
+        )}
+        {refundError && <p className="text-xs text-red-300">{refundError}</p>}
+        <div className="pt-2">
+          <BackLink onClick={onExit} />
+        </div>
       </StatusCard>
     );
   }
@@ -322,23 +435,32 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
   return null;
 }
 
-function StatusCard({ title, children }: { title: string; children: React.ReactNode }) {
+function MatchHeader({
+  stakeEth,
+  matchId,
+  opponent,
+  label,
+}: {
+  stakeEth: string;
+  matchId: `0x${string}`;
+  opponent: `0x${string}`;
+  label: string;
+}) {
   return (
-    <div className="mx-auto max-w-md space-y-3 rounded-2xl border border-sea-700/60 bg-sea-900/60 p-8 text-center">
-      <h2 className="font-display text-2xl text-sea-50">{title}</h2>
-      {children}
+    <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 rounded-xl border border-sea-700/60 bg-sea-900/40 px-4 py-2 text-xs text-sea-300">
+      <div className="flex items-center gap-4">
+        <span>
+          Stake <strong className="text-sea-100">{stakeEth} ETH</strong>
+        </span>
+        <span className="hidden sm:inline">
+          vs <span className="font-mono text-sea-200">{shortAddress(opponent)}</span>
+        </span>
+      </div>
+      <div className="flex items-center gap-4">
+        <span className="font-mono text-[11px] text-sea-500">match {shortHash(matchId)}</span>
+        <span className="font-semibold text-sea-200">{label}</span>
+      </div>
     </div>
-  );
-}
-
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="mt-3 text-sm text-sea-400 underline-offset-4 hover:text-sea-200 hover:underline"
-    >
-      ← Back to home
-    </button>
   );
 }
 

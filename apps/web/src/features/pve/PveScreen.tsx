@@ -10,6 +10,8 @@ import { DifficultySelect } from "./DifficultySelect";
 import { ShipPlacement } from "./ShipPlacement";
 import { GameBoard } from "./GameBoard";
 import { ResultScreen } from "./ResultScreen";
+import { BackLink, Button, StatusCard, TxLink } from "../../components/ui";
+import { errMessage } from "../../lib/format";
 
 type Stage = "select" | "staking" | "placement" | "playing" | "result";
 
@@ -70,31 +72,24 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
 
   if (stage === "staking") {
     return (
-      <div className="mx-auto max-w-lg space-y-4 text-center">
-        <h2 className="font-display text-2xl text-sea-50">Locking entry fee</h2>
+      <StatusCard title="Locking entry fee" tone={writeError ? "danger" : "default"}>
         <p className="text-sm text-sea-300">
           {DIFFICULTY_ENTRY_FEE_ETH[difficulty]} ETH → BotMatch ({DIFFICULTY_LABELS[difficulty]}).
           Approve the transaction in your wallet.
         </p>
         {isSigning && <p className="text-sm text-sea-300">Signing…</p>}
         {isMining && <p className="text-sm text-sea-300">Mining…</p>}
-        {txHash && (
-          <p className="text-xs text-sea-400">
-            Tx: <span className="font-mono">{txHash.slice(0, 12)}…</span>
-          </p>
-        )}
+        {txHash && <TxLink hash={txHash} label="tx" />}
         {writeError && (
           <div className="space-y-3">
-            <p className="text-sm text-red-300">{writeError.message}</p>
-            <button
-              onClick={handleRetry}
-              className="rounded-lg bg-sea-300 px-4 py-2 text-sm font-semibold text-sea-950 hover:bg-sea-200"
-            >
-              Try another difficulty
-            </button>
+            <p className="text-sm text-red-300">{errMessage(writeError)}</p>
+            <Button onClick={handleRetry}>Try another difficulty</Button>
           </div>
         )}
-      </div>
+        <div className="pt-2">
+          <BackLink onClick={onExit} />
+        </div>
+      </StatusCard>
     );
   }
 

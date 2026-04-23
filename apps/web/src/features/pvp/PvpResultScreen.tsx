@@ -1,3 +1,6 @@
+import { BackLink, Button, TxLink } from "../../components/ui";
+import { shortAddress, shortHash } from "../../lib/format";
+
 interface Props {
   won: boolean;
   stakeEth: string;
@@ -6,6 +9,8 @@ interface Props {
   claimed: boolean;
   claimTxHash?: `0x${string}`;
   claimError?: string;
+  opponent?: `0x${string}`;
+  matchId?: `0x${string}`;
   onClaim: () => void;
   onExit: () => void;
 }
@@ -18,6 +23,8 @@ export function PvpResultScreen({
   claimed,
   claimTxHash,
   claimError,
+  opponent,
+  matchId,
   onClaim,
   onExit,
 }: Props) {
@@ -37,15 +44,31 @@ export function PvpResultScreen({
         </h2>
       </div>
 
+      {(opponent || matchId) && (
+        <div className="mx-auto max-w-sm rounded-xl border border-sea-700/60 bg-sea-900/40 px-4 py-3 text-xs text-sea-300">
+          {opponent && (
+            <div>
+              Opponent: <span className="font-mono text-sea-100">{shortAddress(opponent)}</span>
+            </div>
+          )}
+          {matchId && (
+            <div>
+              Match: <span className="font-mono text-sea-100">{shortHash(matchId)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {won && canClaim && !claimed && (
-        <button
+        <Button
+          size="lg"
+          variant="primary"
           onClick={onClaim}
           disabled={claiming}
           data-testid="claim-button"
-          className="rounded-lg bg-sea-300 px-6 py-3 text-sm font-semibold text-sea-950 transition hover:bg-sea-200 disabled:cursor-not-allowed disabled:bg-sea-700 disabled:text-sea-400"
         >
           {claiming ? "Claiming…" : "Claim 95 % of pot"}
-        </button>
+        </Button>
       )}
 
       {won && !canClaim && (
@@ -56,26 +79,13 @@ export function PvpResultScreen({
 
       {claimed && claimTxHash && (
         <p className="text-sm text-sea-300">
-          Claimed.{" "}
-          <a
-            href={`https://sepolia.abscan.org/tx/${claimTxHash}`}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-sea-100 underline-offset-4 hover:underline"
-          >
-            {claimTxHash.slice(0, 10)}…{claimTxHash.slice(-6)}
-          </a>
+          Claimed. <TxLink hash={claimTxHash} className="text-sea-100" />
         </p>
       )}
 
       {claimError && <p className="text-sm text-red-300">{claimError}</p>}
 
-      <button
-        onClick={onExit}
-        className="text-sm text-sea-400 underline-offset-4 hover:text-sea-200 hover:underline"
-      >
-        ← Back to home
-      </button>
+      <BackLink onClick={onExit} />
     </div>
   );
 }

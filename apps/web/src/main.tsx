@@ -6,6 +6,7 @@ import { AbstractWalletProvider } from "@abstract-foundation/agw-react";
 import { abstractTestnet } from "viem/chains";
 import App from "./App";
 import { wagmiConfig } from "./lib/wagmi";
+import { ToastProvider } from "./components/ui";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -15,7 +16,9 @@ createRoot(document.getElementById("root")!).render(
     <AbstractWalletProvider chain={abstractTestnet}>
       <WagmiProvider config={wagmiConfig}>
         <QueryClientProvider client={queryClient}>
-          <App />
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </QueryClientProvider>
       </WagmiProvider>
     </AbstractWalletProvider>
