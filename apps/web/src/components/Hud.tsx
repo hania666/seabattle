@@ -2,15 +2,17 @@ import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { loadStats, type PlayerStats } from "../lib/stats";
 import { rankForXp, TONE_CLASSES } from "../lib/ranks";
+import { useCoins } from "../lib/coins";
 
 /**
- * Compact top-right readout — rank badge, XP coin, wins counter. Reads the
- * local stats store and re-renders whenever the wallet address changes or a
- * `stats:updated` window event fires (dispatched by features after a match).
+ * Compact top-right readout — rank badge, XP (rank points), Coins (shop
+ * currency), wins counter. Re-renders whenever the wallet address changes or
+ * a `stats:updated` / `coins:updated` window event fires.
  */
 export function Hud() {
   const { address } = useAccount();
   const [stats, setStats] = useState<PlayerStats>(() => loadStats(address));
+  const coins = useCoins(address);
 
   useEffect(() => {
     setStats(loadStats(address));
@@ -34,9 +36,21 @@ export function Hud() {
         <RankChevron />
         <span className="hidden sm:inline">{progress.rank.label}</span>
       </div>
-      <div className="flex items-center gap-1.5 rounded-full bg-sea-950/70 px-3 py-1.5 text-xs font-semibold text-gold-300 ring-1 ring-gold-400/40">
-        <CoinIcon />
+      <div
+        className="flex items-center gap-1.5 rounded-full bg-sea-950/70 px-3 py-1.5 text-xs font-semibold text-sea-100 ring-1 ring-sea-500/40"
+        title={`XP: ${stats.xp.toLocaleString()}`}
+        data-testid="hud-xp"
+      >
+        <XpIcon />
         <span className="tabular-nums">{stats.xp.toLocaleString()}</span>
+      </div>
+      <div
+        className="flex items-center gap-1.5 rounded-full bg-sea-950/70 px-3 py-1.5 text-xs font-semibold text-gold-300 ring-1 ring-gold-400/40"
+        title={`Coins: ${coins.toLocaleString()}`}
+        data-testid="hud-coins"
+      >
+        <CoinIcon />
+        <span className="tabular-nums">{coins.toLocaleString()}</span>
       </div>
       <div className="hidden items-center gap-1.5 rounded-full bg-sea-950/70 px-3 py-1.5 text-xs font-semibold text-coral-300 ring-1 ring-coral-400/40 sm:flex">
         <TrophyIcon />
@@ -60,6 +74,17 @@ function CoinIcon() {
       <circle cx="10" cy="10" r="8" fill="#fbbf24" />
       <circle cx="10" cy="10" r="6" fill="#fcd34d" />
       <path d="M10 5v10M7 8h6M7 12h6" stroke="#b45309" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function XpIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 20 20" className="h-4 w-4 text-sea-200">
+      <path
+        d="M4 6l3 8h1.5L10 9l1.5 5H13l3-8h-1.8l-1.7 5L11 7H9.2L8 11 6.3 6H4z"
+        fill="currentColor"
+      />
     </svg>
   );
 }

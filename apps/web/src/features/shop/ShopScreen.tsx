@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { BackLink, Button, Card } from "../../components/ui";
 import { useT } from "../../lib/i18n";
-import { loadStats } from "../../lib/stats";
+import { useCoins } from "../../lib/coins";
 import {
   canClaimDaily,
   claimDaily,
@@ -23,20 +23,17 @@ export function ShopScreen({ onExit }: Props) {
   const t = useT();
   const { address } = useAccount();
   const [state, setState] = useState<PowerupState>(() => loadPowerupState(address));
-  const [xp, setXp] = useState(() => loadStats(address).xp);
+  const coins = useCoins(address);
   const [flash, setFlash] = useState<null | { kind: "ok" | "err"; text: string }>(null);
 
   useEffect(() => {
     function refresh() {
       setState(loadPowerupState(address));
-      setXp(loadStats(address).xp);
     }
     refresh();
     window.addEventListener("powerups:updated", refresh);
-    window.addEventListener("stats:updated", refresh);
     return () => {
       window.removeEventListener("powerups:updated", refresh);
-      window.removeEventListener("stats:updated", refresh);
     };
   }, [address]);
 
@@ -46,7 +43,12 @@ export function ShopScreen({ onExit }: Props) {
       sfx.coin();
       setFlash({ kind: "ok", text: `+1 ${t(`shop.${id}.name`)}` });
     } else {
-      setFlash({ kind: "err", text: t(`shop.need`, { n: 0 }) });
+      setFlash({
+        kind: "err",
+        text: t(`shop.need`, {
+          n: res.reason === "insufficient-coins" ? (res.need ?? 0) - (res.have ?? 0) : 0,
+        }),
+      });
     }
     setTimeout(() => setFlash(null), 1800);
   }
@@ -77,8 +79,11 @@ export function ShopScreen({ onExit }: Props) {
         </div>
         <div className="flex items-center gap-3 rounded-full bg-sea-900/70 px-4 py-2 ring-1 ring-gold-400/40">
           <CoinIcon />
-          <span className="font-display text-xl font-bold text-gold-300 tabular-nums">
-            {xp.toLocaleString()}
+          <span
+            className="font-display text-xl font-bold text-gold-300 tabular-nums"
+            data-testid="shop-coins"
+          >
+            {coins.toLocaleString()}
           </span>
           <span className="text-[11px] uppercase tracking-wider text-sea-300">
             {t("shop.balance")}
@@ -126,7 +131,7 @@ export function ShopScreen({ onExit }: Props) {
       <section className="grid gap-3 sm:grid-cols-2">
         {POWERUPS.map((p) => {
           const count = state.inventory[p.id];
-          const affordable = xp >= p.cost;
+          const affordable = coins >= p.cost;
           return (
             <div
               key={p.id}
@@ -168,7 +173,7 @@ export function ShopScreen({ onExit }: Props) {
                   disabled={!affordable}
                   data-testid={`shop-buy-${p.id}`}
                 >
-                  {affordable ? t("shop.buy") : t("shop.need", { n: p.cost - xp })}
+                  {affordable ? t("shop.buy") : t("shop.need", { n: p.cost - coins })}
                 </Button>
               </div>
             </div>

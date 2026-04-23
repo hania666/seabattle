@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { useAccount, useDisconnect } from "wagmi";
 import { shortAddress } from "./lib/format";
@@ -10,6 +10,7 @@ import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Home } from "./features/home/Home";
 import { sfx } from "./lib/audio";
 import { useT } from "./lib/i18n";
+import { runBootstrap } from "./lib/bootstrap";
 
 const PveScreen = lazy(() =>
   import("./features/pve/PveScreen").then((m) => ({ default: m.PveScreen })),
@@ -39,6 +40,13 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [showSplash, setShowSplash] = useState(() => !splashSeen());
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Bootstrap: run coin migration + pending inactivity decay once per
+  // address. Idempotent — migrateCoins stores a flag; decay shifts the last
+  // match timestamp forward so we never double-charge.
+  useEffect(() => {
+    runBootstrap(address);
+  }, [address]);
 
   function goto(next: Screen) {
     sfx.click();
