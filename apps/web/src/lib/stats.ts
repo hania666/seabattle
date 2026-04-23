@@ -61,6 +61,8 @@ export function saveStats(stats: PlayerStats, address?: string | null): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key(address), JSON.stringify(stats));
+    // Notify listeners (Hud, Home, Profile, …) that local stats changed.
+    window.dispatchEvent(new Event("stats:updated"));
   } catch {
     /* quota exceeded or blocked — ignore */
   }

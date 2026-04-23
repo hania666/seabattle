@@ -48,10 +48,12 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   2: "Hard",
 };
 
+// Dust-level entry fees: the user essentially only pays gas. Easy is free,
+// Normal/Hard ask for a tiny stake to anti-farm without costing anything real.
 export const DIFFICULTY_ENTRY_FEE_ETH: Record<Difficulty, string> = {
-  0: "0.0001",
-  1: "0.0005",
-  2: "0.001",
+  0: "0",
+  1: "0.00001",
+  2: "0.00005",
 };
 
 export const DIFFICULTY_XP: Record<Difficulty, number> = {
