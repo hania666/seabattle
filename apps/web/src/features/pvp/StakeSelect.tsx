@@ -1,16 +1,21 @@
 import { useState } from "react";
 import { STAKE_OPTIONS, type StakeOption } from "../../lib/pvp/stakes";
 import { Button } from "../../components/ui";
+import { useT } from "../../lib/i18n";
+
+export type PvpMode = "classic" | "arcade";
 
 interface Props {
-  onStart: (mode: "host" | "join", stake: StakeOption) => void;
+  onStart: (mode: "host" | "join", stake: StakeOption, pvpMode: PvpMode) => void;
   onBack: () => void;
   disabled?: boolean;
   disabledReason?: string;
 }
 
 export function StakeSelect({ onStart, onBack, disabled, disabledReason }: Props) {
+  const t = useT();
   const [selected, setSelected] = useState<string>(STAKE_OPTIONS[1].id);
+  const [pvpMode, setPvpMode] = useState<PvpMode>("classic");
   const stake = STAKE_OPTIONS.find((o) => o.id === selected)!;
 
   return (
@@ -27,6 +32,38 @@ export function StakeSelect({ onStart, onBack, disabled, disabledReason }: Props
           </p>
         )}
       </header>
+
+      <section className="space-y-2" aria-labelledby="pvp-mode-heading">
+        <h3
+          id="pvp-mode-heading"
+          className="text-center text-[11px] font-semibold uppercase tracking-[0.3em] text-sea-400"
+        >
+          {t("pvp.mode.title")}
+        </h3>
+        <div
+          className="mx-auto grid max-w-2xl gap-3 sm:grid-cols-2"
+          role="radiogroup"
+          aria-label={t("pvp.mode.title")}
+        >
+          <ModeCard
+            active={pvpMode === "classic"}
+            onSelect={() => setPvpMode("classic")}
+            title={t("pvp.mode.classic.name")}
+            desc={t("pvp.mode.classic.desc")}
+            badge={t("pvp.mode.classic.badge")}
+            testid="pvp-mode-classic"
+          />
+          <ModeCard
+            active={pvpMode === "arcade"}
+            onSelect={() => setPvpMode("arcade")}
+            title={t("pvp.mode.arcade.name")}
+            desc={t("pvp.mode.arcade.desc")}
+            badge={t("pvp.mode.arcade.badge")}
+            testid="pvp-mode-arcade"
+            soon
+          />
+        </div>
+      </section>
 
       <ul className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Stake amount">
         {STAKE_OPTIONS.map((opt) => {
@@ -61,7 +98,7 @@ export function StakeSelect({ onStart, onBack, disabled, disabledReason }: Props
         <Button
           variant="primary"
           size="lg"
-          onClick={() => onStart("host", stake)}
+          onClick={() => onStart("host", stake, pvpMode)}
           disabled={disabled}
           data-testid="host-button"
         >
@@ -70,7 +107,7 @@ export function StakeSelect({ onStart, onBack, disabled, disabledReason }: Props
         <Button
           variant="secondary"
           size="lg"
-          onClick={() => onStart("join", stake)}
+          onClick={() => onStart("join", stake, pvpMode)}
           disabled={disabled}
           data-testid="join-button"
         >
@@ -86,5 +123,46 @@ export function StakeSelect({ onStart, onBack, disabled, disabledReason }: Props
         <code>claimTimeout</code> if the opponent vanishes.
       </p>
     </div>
+  );
+}
+
+interface ModeCardProps {
+  active: boolean;
+  onSelect: () => void;
+  title: string;
+  desc: string;
+  badge: string;
+  testid: string;
+  soon?: boolean;
+}
+
+function ModeCard({ active, onSelect, title, desc, badge, testid, soon }: ModeCardProps) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onSelect}
+      data-testid={testid}
+      className={`relative rounded-2xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sea-300 ${
+        active
+          ? "border-gold-400/70 bg-sea-800 shadow-glow-gold"
+          : "border-sea-700/60 bg-sea-900/60 hover:border-sea-500"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-display text-lg text-sea-50">{title}</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+            soon
+              ? "bg-amber-900/60 text-amber-200 ring-1 ring-amber-500/40"
+              : "bg-sea-700/60 text-sea-100 ring-1 ring-sea-400/40"
+          }`}
+        >
+          {badge}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-sea-300">{desc}</p>
+    </button>
   );
 }

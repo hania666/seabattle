@@ -61,9 +61,9 @@ const dictionaries: Record<Lang, Record<string, string>> = {
       "Top captains ranked by XP. Your spot updates after every match. Daily & all-time boards.",
     "home.tile.leaderboard.cta": "VIEW",
     "home.tile.shop.title": "SHIP SHOP",
-    "home.tile.shop.sub": "Powerups for XP",
+    "home.tile.shop.sub": "Powerups for Coins",
     "home.tile.shop.desc":
-      "Spend XP on bombs, radars, torpedoes, shields. Daily free crate on login.",
+      "Spend Coins on bombs, radars, torpedoes, shields. Daily free crate on login.",
     "home.tile.shop.cta": "BROWSE",
 
     // Settings modal
@@ -118,11 +118,36 @@ const dictionaries: Record<Lang, Record<string, string>> = {
 
     // Shop
     "shop.title": "Ship shop",
-    "shop.subtitle": "Spend XP on battle powerups",
-    "shop.balance": "Your balance",
+    "shop.subtitle": "Spend Coins on battle powerups",
+    "shop.balance": "Coins",
     "shop.buy": "Buy",
     "shop.owned": "Owned",
-    "shop.need": "Need {{n}} XP",
+    "shop.need": "Need {{n}} more",
+
+    // Coins / rewards
+    "coins.label": "Coins",
+    "coins.earned": "+{{n}} Coins",
+    "coins.migration.grant":
+      "Welcome bonus: +{{n}} Coins. Coins are a new in-game currency separate from XP — spend them in the shop.",
+
+    // PvP mode selector
+    "pvp.mode.title": "Match format",
+    "pvp.mode.classic.name": "Classic",
+    "pvp.mode.classic.badge": "Pure skill",
+    "pvp.mode.classic.desc":
+      "No powerups. Winner is decided by placement and reads only. Recommended for fair play.",
+    "pvp.mode.arcade.name": "Arcade",
+    "pvp.mode.arcade.badge": "Coming soon",
+    "pvp.mode.arcade.desc":
+      "Both players receive a matching starter kit (1 Bomb + 1 Radar) that does not touch inventory. Ships next patch.",
+
+    // Rank / decay messaging (Profile)
+    "rank.decay.inactivity":
+      "Heads up — if you skip matches for more than {{days}} days, XP starts bleeding by {{per}} per week.",
+    "rank.decay.losing.streak":
+      "Losing streak: {{n}}. One more loss will cost you {{penalty}} XP.",
+    "rank.decay.applied":
+      "Inactivity decay applied: −{{n}} XP. Play a match to reset the timer.",
     "shop.daily.title": "Daily crate",
     "shop.daily.desc": "Free Bomb + Radar every 24 hours. Just open the shop.",
     "shop.daily.claim": "Claim today's crate",
@@ -182,9 +207,9 @@ const dictionaries: Record<Lang, Record<string, string>> = {
       "Топ капитанов по XP. Твоё место обновляется после каждого матча.",
     "home.tile.leaderboard.cta": "СМОТРЕТЬ",
     "home.tile.shop.title": "МАГАЗИН",
-    "home.tile.shop.sub": "Плюшки за XP",
+    "home.tile.shop.sub": "Плюшки за монеты",
     "home.tile.shop.desc":
-      "Бомбы, радары, торпеды, щиты — за XP. Ежедневный бесплатный ящик.",
+      "Бомбы, радары, торпеды, щиты — за монеты. Ежедневный бесплатный ящик.",
     "home.tile.shop.cta": "ОТКРЫТЬ",
 
     "settings.title": "Настройки",
@@ -233,11 +258,33 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "splash.enter": "В бой",
 
     "shop.title": "Магазин",
-    "shop.subtitle": "Трать XP на боевые плюшки",
-    "shop.balance": "Твой баланс",
+    "shop.subtitle": "Трать монеты на боевые плюшки",
+    "shop.balance": "Монеты",
     "shop.buy": "Купить",
     "shop.owned": "В инвентаре",
-    "shop.need": "Нужно {{n}} XP",
+    "shop.need": "Нужно ещё {{n}}",
+
+    "coins.label": "Монеты",
+    "coins.earned": "+{{n}} монет",
+    "coins.migration.grant":
+      "Приветственный бонус: +{{n}} монет. Монеты — новая игровая валюта, отдельная от XP. Трать в магазине.",
+
+    "pvp.mode.title": "Формат матча",
+    "pvp.mode.classic.name": "Классик",
+    "pvp.mode.classic.badge": "Чистый скил",
+    "pvp.mode.classic.desc":
+      "Без плюшек. Победа решается расстановкой и прочтением поля. Рекомендуем для честной игры.",
+    "pvp.mode.arcade.name": "Аркада",
+    "pvp.mode.arcade.badge": "Скоро",
+    "pvp.mode.arcade.desc":
+      "Оба игрока получают одинаковый стартовый набор (1 бомба + 1 радар), инвентарь не тратится. Включим в следующем патче.",
+
+    "rank.decay.inactivity":
+      "Заметка: если не играть более {{days}} дней, XP начнёт капать по {{per}} в неделю.",
+    "rank.decay.losing.streak":
+      "Серия поражений: {{n}}. Следующий проигрыш снимет {{penalty}} XP.",
+    "rank.decay.applied":
+      "Начислен декей за неактивность: −{{n}} XP. Сыграй матч, чтобы обнулить таймер.",
     "shop.daily.title": "Ежедневный ящик",
     "shop.daily.desc": "Бесплатно Bomb + Radar раз в сутки. Просто зайди в магазин.",
     "shop.daily.claim": "Забрать сегодняшний ящик",
@@ -296,9 +343,9 @@ const dictionaries: Record<Lang, Record<string, string>> = {
       "Топ капітанів за XP. Твоє місце оновлюється після кожного матчу.",
     "home.tile.leaderboard.cta": "ПЕРЕГЛЯНУТИ",
     "home.tile.shop.title": "МАГАЗИН",
-    "home.tile.shop.sub": "Плюшки за XP",
+    "home.tile.shop.sub": "Плюшки за монети",
     "home.tile.shop.desc":
-      "Бомби, радари, торпеди, щити — за XP. Щоденна безкоштовна скриня.",
+      "Бомби, радари, торпеди, щити — за монети. Щоденна безкоштовна скриня.",
     "home.tile.shop.cta": "ВІДКРИТИ",
 
     "settings.title": "Налаштування",
@@ -347,11 +394,33 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "splash.enter": "У бій",
 
     "shop.title": "Магазин",
-    "shop.subtitle": "Витрачай XP на бойові плюшки",
-    "shop.balance": "Твій баланс",
+    "shop.subtitle": "Витрачай монети на бойові плюшки",
+    "shop.balance": "Монети",
     "shop.buy": "Купити",
     "shop.owned": "В інвентарі",
-    "shop.need": "Треба {{n}} XP",
+    "shop.need": "Потрібно ще {{n}}",
+
+    "coins.label": "Монети",
+    "coins.earned": "+{{n}} монет",
+    "coins.migration.grant":
+      "Вітальний бонус: +{{n}} монет. Монети — нова ігрова валюта, окрема від XP. Витрачай в магазині.",
+
+    "pvp.mode.title": "Формат матчу",
+    "pvp.mode.classic.name": "Класик",
+    "pvp.mode.classic.badge": "Чистий скіл",
+    "pvp.mode.classic.desc":
+      "Без плюшок. Перемога вирішується розташуванням і читанням поля. Рекомендуємо для чесної гри.",
+    "pvp.mode.arcade.name": "Аркада",
+    "pvp.mode.arcade.badge": "Скоро",
+    "pvp.mode.arcade.desc":
+      "Обидва гравці отримують однаковий стартовий набір (1 бомба + 1 радар), інвентар не витрачається. Запустимо в наступному оновленні.",
+
+    "rank.decay.inactivity":
+      "Увага: якщо не грати понад {{days}} днів, XP почне крапати по {{per}} на тиждень.",
+    "rank.decay.losing.streak":
+      "Серія поразок: {{n}}. Наступна поразка зніме {{penalty}} XP.",
+    "rank.decay.applied":
+      "Нараховано декей за неактивність: −{{n}} XP. Зіграй матч, щоб скинути таймер.",
     "shop.daily.title": "Щоденна скриня",
     "shop.daily.desc": "Безкоштовно Bomb + Radar раз на добу. Просто зайди в магазин.",
     "shop.daily.claim": "Забрати сьогоднішню скриню",

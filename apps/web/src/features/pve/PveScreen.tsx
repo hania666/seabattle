@@ -12,7 +12,15 @@ import { GameBoard } from "./GameBoard";
 import { ResultScreen } from "./ResultScreen";
 import { BackLink, Button, StatusCard, TxLink } from "../../components/ui";
 import { errMessage } from "../../lib/format";
-import { recordMatch } from "../../lib/stats";
+import { loadStats, recordMatch } from "../../lib/stats";
+import { grantPveReward } from "../../lib/coins";
+import {
+  applyXpDelta,
+  currentLossStreak,
+  lossStreakPenalty,
+  STREAK_THRESHOLD,
+} from "../../lib/rankDecay";
+import { saveStats } from "../../lib/stats";
 
 type Stage = "select" | "staking" | "placement" | "playing" | "result";
 
@@ -56,7 +64,28 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
 
   function handleFinished(won: boolean, stats: { playerShots: number; botShots: number }) {
     setResult({ won, ...stats });
-    recordMatch(address, { mode: "pve", won, difficulty });
+    const next = recordMatch(address, { mode: "pve", won, difficulty });
+    // Win streak = most recent consecutive wins (inverse of loss streak).
+    let winStreak = 0;
+    for (const m of next.matches) {
+      if (!m.won) break;
+      winStreak++;
+    }
+    if (won) {
+      grantPveReward(address, true, difficulty, winStreak);
+    } else {
+      // On a loss, check if we just crossed the loss-streak threshold and
+      // apply a rank-scaled XP penalty. Skipped while in grace (stats.xp < FLOOR).
+      const lossStreak = currentLossStreak(next);
+      if (lossStreak >= STREAK_THRESHOLD) {
+        const prevXp = loadStats(address).xp;
+        const penalty = lossStreakPenalty(prevXp);
+        const xpNext = applyXpDelta(prevXp, -penalty);
+        if (xpNext !== prevXp) {
+          saveStats({ ...next, xp: xpNext }, address);
+        }
+      }
+    }
     setStage("result");
   }
 
