@@ -10,6 +10,7 @@
 import { loadStats, saveStats } from "./stats";
 import { migrateCoins } from "./coins";
 import {
+  DECAY_PER_WEEK,
   INACTIVITY_GRACE_MS,
   WEEK_MS,
   applyXpDelta,
@@ -33,7 +34,7 @@ export function runBootstrap(address?: string | null): BootstrapResult {
     // Advance the most recent match's timestamp forward by `weeks * WEEK_MS`
     // so the decay window shifts — playing resets cleanly, while sitting
     // idle keeps decay accruing one week at a time.
-    const weeks = Math.floor(decayCharged / 50); // DECAY_PER_WEEK
+    const weeks = Math.floor(decayCharged / DECAY_PER_WEEK);
     const shifted = [...stats.matches];
     if (shifted[0]) {
       shifted[0] = {
