@@ -1,17 +1,10 @@
-const SEEN_KEY = "sea3battle:splash-seen";
+/**
+ * Splash gating — the user explicitly asked for an intro screen on every
+ * fresh page visit. We intentionally do NOT cache a "seen" flag, so the
+ * splash renders on every full page load and the user can still skip it
+ * with a click or the ENTER button.
+ */
 
 export function splashSeen(): boolean {
-  try {
-    return sessionStorage.getItem(SEEN_KEY) === "1";
-  } catch {
-    return true;
-  }
-}
-
-export function markSplashSeen(): void {
-  try {
-    sessionStorage.setItem(SEEN_KEY, "1");
-  } catch {
-    /* storage blocked — ignore */
-  }
+  return false;
 }
