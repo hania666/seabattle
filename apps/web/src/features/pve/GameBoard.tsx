@@ -4,6 +4,7 @@ import { randomFleet } from "../../lib/game/board";
 import { allShipsSunk, fireShot, openCells, publicView } from "../../lib/game/shots";
 import { type Board, type Coord, type Difficulty } from "../../lib/game/types";
 import { DIFFICULTY_LABELS } from "../../lib/game/types";
+import { sfx } from "../../lib/audio";
 import { BoardGrid } from "./BoardGrid";
 import { TurnTimer } from "./TurnTimer";
 
@@ -57,8 +58,13 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         ...l,
         { side: "player", coord: [row, col], outcome: result.outcome as "miss" | "hit" | "sunk", auto },
       ]);
+      sfx.shot();
+      if (result.outcome === "miss") setTimeout(() => sfx.miss(), 120);
+      else if (result.outcome === "hit") setTimeout(() => sfx.hit(), 120);
+      else if (result.outcome === "sunk") setTimeout(() => sfx.sunk(), 120);
       if (allShipsSunk(result.board)) {
         finished.current = true;
+        setTimeout(() => sfx.victory(), 400);
         onFinished(true, { playerShots: playerShots + 1, botShots });
         return;
       }
@@ -89,6 +95,9 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         ...l,
         { side: "bot", coord: shot, outcome: result.outcome as "miss" | "hit" | "sunk" },
       ]);
+      if (result.outcome === "miss") sfx.miss();
+      else if (result.outcome === "hit") sfx.hit();
+      else if (result.outcome === "sunk") sfx.sunk();
       botMemory.current = rememberShot(
         botMemory.current,
         shot,
@@ -97,6 +106,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       );
       if (allShipsSunk(result.board)) {
         finished.current = true;
+        setTimeout(() => sfx.defeat(), 400);
         onFinished(false, { playerShots, botShots: botShots + 1 });
         return;
       }

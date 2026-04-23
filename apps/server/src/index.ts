@@ -1,11 +1,17 @@
 import "dotenv/config";
 import http from "node:http";
+import path from "node:path";
 import cors from "cors";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { signResult } from "./signer";
+import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
+
+const leaderboardPath =
+  process.env.LEADERBOARD_PATH ?? path.resolve(process.cwd(), "data/leaderboard.json");
+const leaderboard = createFileStore(leaderboardPath);
 
 const env = loadEnv();
 
@@ -61,6 +67,59 @@ app.post("/api/bot-result", async (req, res) => {
     botMatchAddress: env.botMatchAddress,
     chainId: env.chainId,
   });
+});
+
+/**
+ * GET /api/leaderboard?limit=20 — top N players by XP.
+ */
+app.get("/api/leaderboard", async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 20) || 20, 1), 100);
+  try {
+    const all = await leaderboard.load();
+    return res.json({
+      top: topN(all, limit),
+      total: all.length,
+      updatedAt: Date.now(),
+    });
+  } catch (e) {
+    return res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+/**
+ * POST /api/leaderboard/submit — client-signed XP update. Body:
+ * { address, xp, wins, losses, rankKey, nonce, signature }.
+ */
+app.post("/api/leaderboard/submit", async (req, res) => {
+  const body = req.body as Partial<LeaderboardEntry> & {
+    nonce?: number;
+    signature?: `0x${string}`;
+  };
+  if (
+    typeof body.address !== "string" ||
+    typeof body.xp !== "number" ||
+    typeof body.wins !== "number" ||
+    typeof body.losses !== "number" ||
+    typeof body.rankKey !== "string" ||
+    typeof body.nonce !== "number" ||
+    typeof body.signature !== "string"
+  ) {
+    return res.status(400).json({ error: "invalid payload" });
+  }
+  try {
+    const entry = await leaderboard.submit({
+      address: body.address as `0x${string}`,
+      xp: body.xp,
+      wins: body.wins,
+      losses: body.losses,
+      rankKey: body.rankKey,
+      nonce: body.nonce,
+      signature: body.signature,
+    });
+    return res.json({ ok: true, entry });
+  } catch (e) {
+    return res.status(400).json({ error: (e as Error).message });
+  }
 });
 
 const server = http.createServer(app);

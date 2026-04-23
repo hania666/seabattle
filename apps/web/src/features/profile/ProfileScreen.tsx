@@ -3,6 +3,7 @@ import { useAccount } from "wagmi";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { BackLink, Button, Card } from "../../components/ui";
 import { shortAddress } from "../../lib/format";
+import { rankForXp, RANKS, TONE_CLASSES } from "../../lib/ranks";
 import {
   clearStats,
   describeMatch,
@@ -29,10 +30,8 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
   const totalLosses = stats.pveLosses + stats.pvpLosses;
   const totalMatches = totalWins + totalLosses;
   const winRate = totalMatches === 0 ? 0 : Math.round((totalWins / totalMatches) * 100);
-  // XP needed for next level grows every 500 XP. Pure cosmetic progress bar.
-  const level = Math.floor(stats.xp / 500) + 1;
-  const levelXp = stats.xp % 500;
-  const levelPct = Math.min(100, Math.round((levelXp / 500) * 100));
+  const progress = rankForXp(stats.xp);
+  const rankTone = TONE_CLASSES[progress.rank.tone];
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 py-4">
@@ -61,27 +60,78 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
         )}
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-4">
-        <StatTile label="Level" value={level} accent="gold" />
-        <StatTile label="XP" value={stats.xp} />
-        <StatTile label="Wins" value={totalWins} accent="sea" />
-        <StatTile label="Losses" value={totalLosses} accent="coral" />
-      </div>
-
       <Card>
-        <div className="flex items-center justify-between">
-          <div className="text-xs uppercase tracking-[0.2em] text-sea-400">Level progress</div>
-          <div className="text-xs text-sea-300">
-            {levelXp}/500 XP · win rate {winRate}%
+        <div className="flex flex-wrap items-center gap-4">
+          <div
+            className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl ring-4 ${rankTone.bg} ${rankTone.ring}`}
+            aria-hidden
+          >
+            <RankBadge className={`h-12 w-12 ${rankTone.text}`} />
+          </div>
+          <div className="flex-1 min-w-[200px]">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.25em] text-sea-400">
+              Current rank
+            </div>
+            <div className="font-display text-3xl font-bold text-sea-50">
+              {progress.rank.label}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-sea-300">
+              <span className="text-gold-300">{stats.xp.toLocaleString()} XP</span>
+              <span>· win rate {winRate}%</span>
+              {progress.next && (
+                <span className="text-sea-200/80">
+                  · {progress.xpForNext - progress.xpIntoRank} XP to {progress.next.label}
+                </span>
+              )}
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-sea-900/70 ring-1 ring-sea-700/60">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-sea-300 via-gold-300 to-gold-500"
+                style={{ width: `${progress.pct}%` }}
+              />
+            </div>
           </div>
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-sea-900/70 ring-1 ring-sea-700/60">
-          <div
-            className="h-full bg-gradient-to-r from-gold-400 to-gold-500 shadow-glow-gold"
-            style={{ width: `${levelPct}%` }}
-          />
-        </div>
       </Card>
+
+      <div className="grid gap-4 sm:grid-cols-4">
+        <StatTile label="XP" value={stats.xp} accent="gold" />
+        <StatTile label="Wins" value={totalWins} accent="sea" />
+        <StatTile label="Losses" value={totalLosses} accent="coral" />
+        <StatTile label="Matches" value={totalMatches} />
+      </div>
+
+      <section>
+        <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.25em] text-sea-400">
+          Rank ladder
+        </h3>
+        <div className="flex flex-wrap gap-2">
+          {RANKS.map((r) => {
+            const active = r.key === progress.rank.key;
+            const unlocked = stats.xp >= r.minXp;
+            const tc = TONE_CLASSES[r.tone];
+            return (
+              <div
+                key={r.key}
+                className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs ring-1 transition ${
+                  active
+                    ? `${tc.bg} ${tc.text} ring-2 ${tc.ring} shadow-glow`
+                    : unlocked
+                      ? "bg-sea-900/70 text-sea-100 ring-sea-600/60"
+                      : "bg-sea-950/60 text-sea-400/70 ring-sea-800/60"
+                }`}
+                title={`${r.label} · unlock at ${r.minXp.toLocaleString()} XP`}
+              >
+                <RankBadge className="h-3.5 w-3.5" />
+                <span className="font-medium">{r.label}</span>
+                <span className="text-[10px] opacity-75 tabular-nums">
+                  {r.minXp.toLocaleString()}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <ModeCard
@@ -225,6 +275,16 @@ function ModeCard({
         </Button>
       </div>
     </Card>
+  );
+}
+
+function RankBadge({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden viewBox="0 0 40 40" className={className}>
+      <path d="M4 16 L20 4 L36 16 L20 28 Z" fill="currentColor" opacity="0.95" />
+      <path d="M8 18 L20 10 L32 18 L20 26 Z" fill="currentColor" opacity="0.7" />
+      <path d="M10 30 L30 30 L28 36 L12 36 Z" fill="currentColor" opacity="0.85" />
+    </svg>
   );
 }
 
