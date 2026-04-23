@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createBotMemory, pickBotShot, rememberShot, type BotMemory } from "../../lib/game/bot";
 import { randomFleet } from "../../lib/game/board";
-import { allShipsSunk, fireShot, publicView } from "../../lib/game/shots";
-import { BOARD_SIZE, type Board, type Coord, type Difficulty } from "../../lib/game/types";
+import { allShipsSunk, fireShot, openCells, publicView } from "../../lib/game/shots";
+import { type Board, type Coord, type Difficulty } from "../../lib/game/types";
 import { DIFFICULTY_LABELS } from "../../lib/game/types";
 import { BoardGrid } from "./BoardGrid";
 import { TurnTimer } from "./TurnTimer";
@@ -69,16 +69,12 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
 
   const handlePlayerTimeout = useCallback(() => {
     if (turn !== "player" || finished.current) return;
-    // Pick any untried cell.
-    for (let r = 0; r < BOARD_SIZE; r++) {
-      for (let c = 0; c < BOARD_SIZE; c++) {
-        const cell = enemyBoard.cells[r][c];
-        if (cell.kind === "empty" || (cell.kind === "ship" && !cell.revealed)) {
-          handleAttack(r, c, true);
-          return;
-        }
-      }
-    }
+    // Pick any untried cell — both water and hidden ship cells qualify, so a
+    // timeout can still land a hit (just without any targeting skill).
+    const open = openCells(enemyBoard);
+    if (open.length === 0) return;
+    const pick = open[Math.floor(Math.random() * open.length)];
+    handleAttack(pick[0], pick[1], true);
   }, [turn, enemyBoard, handleAttack]);
 
   useEffect(() => {
