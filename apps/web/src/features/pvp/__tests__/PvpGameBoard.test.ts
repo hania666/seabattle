@@ -85,4 +85,29 @@ describe("PvpGameBoard helpers", () => {
     ]);
     expect(countOwnShipsSunk(sunkBoard)).toBe(1);
   });
+
+  // Regression: hit -> sunk on the same ship must preserve a single shipId so
+  // countOwnShipsSunk doesn't double-count an already-hit cell as a separate
+  // "own" ship.
+  it("applyOpponentShots preserves shipId when upgrading hit cells to sunk", () => {
+    let board = createEmptyBoard();
+    board = placeShip(board, "destroyer", [
+      [0, 0],
+      [0, 1],
+    ]);
+    const sunkBoard = applyOpponentShots(board, [
+      { coord: [0, 0], outcome: "hit" },
+      {
+        coord: [0, 1],
+        outcome: "sunk",
+        sunkShipCells: [
+          [0, 0],
+          [0, 1],
+        ],
+      },
+    ]);
+    expect(sunkBoard.cells[0][0].kind).toBe("sunk");
+    expect(sunkBoard.cells[0][1].kind).toBe("sunk");
+    expect(countOwnShipsSunk(sunkBoard)).toBe(1);
+  });
 });

@@ -34,19 +34,29 @@ export function applyOpponentShots(board: Board, shots: ShotRecord[]): Board {
     if (shot.outcome === "miss") {
       cells[r][c] = { kind: "miss" };
     } else if (shot.outcome === "hit") {
-      const under = cells[r][c];
-      const shipId = under.kind === "ship" ? under.shipId : "own";
-      cells[r][c] = { kind: "hit", shipId };
+      cells[r][c] = { kind: "hit", shipId: shipIdAt(cells, r, c) };
     } else if (shot.outcome === "sunk") {
       const targets = shot.sunkShipCells ?? [shot.coord];
       for (const [sr, sc] of targets) {
-        const under = cells[sr][sc];
-        const shipId = under.kind === "ship" ? under.shipId : "own";
-        cells[sr][sc] = { kind: "sunk", shipId };
+        cells[sr][sc] = { kind: "sunk", shipId: shipIdAt(cells, sr, sc) };
       }
     }
   }
   return { ships: board.ships, cells };
+}
+
+/**
+ * Resolve the shipId at a cell. ship/hit/sunk cells all carry a real shipId;
+ * empty/miss cells fall back to "own" so the cell still renders as one of our
+ * ships — but we must preserve the real id when it exists so ship-counting
+ * helpers can tell ships apart.
+ */
+function shipIdAt(cells: CellState[][], r: number, c: number): string {
+  const under = cells[r][c];
+  if (under.kind === "ship" || under.kind === "hit" || under.kind === "sunk") {
+    return under.shipId;
+  }
+  return "own";
 }
 
 /** Count distinct ships we have sunk (by counting "sunk" outcomes in our fire log). */
