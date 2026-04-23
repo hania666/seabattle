@@ -21,14 +21,26 @@ export function BoardGrid({ board, mode, onCellClick, disabled, highlight, ...re
   const highlightSet = new Set(highlight?.map(([r, c]) => `${r},${c}`) ?? []);
 
   return (
-    <div className="inline-block select-none" data-testid={rest["data-testid"]}>
+    <div
+      className="mx-auto w-full max-w-fit select-none overflow-x-auto"
+      data-testid={rest["data-testid"]}
+      role="grid"
+      aria-label={mode === "own" ? "Your fleet board" : "Opponent board"}
+    >
       <div
         className="grid gap-1"
-        style={{ gridTemplateColumns: `1.5rem repeat(${BOARD_SIZE}, minmax(1.75rem, 2.25rem))` }}
+        style={{
+          // 1.25rem rail for row labels, then 10 cells that scale with viewport.
+          gridTemplateColumns: `1.25rem repeat(${BOARD_SIZE}, minmax(1.5rem, clamp(1.75rem, 7.5vw, 2.25rem)))`,
+        }}
       >
         <div />
         {LABELS_COLS.map((c) => (
-          <div key={c} className="text-center text-[11px] font-semibold text-sea-400">
+          <div
+            key={c}
+            className="text-center text-[11px] font-semibold text-sea-400"
+            aria-hidden="true"
+          >
             {c}
           </div>
         ))}
@@ -65,7 +77,9 @@ function Row({
 }) {
   return (
     <>
-      <div className="pt-[3px] text-right text-[11px] font-semibold text-sea-400">{row + 1}</div>
+      <div className="pt-[3px] text-right text-[11px] font-semibold text-sea-400" aria-hidden="true">
+        {row + 1}
+      </div>
       {Array.from({ length: BOARD_SIZE }, (_, c) => {
         const cell = board.cells[row][c];
         const isShip = cell.kind === "ship";
@@ -82,13 +96,23 @@ function Row({
           isSunk && "border-red-600 bg-red-600/70 text-red-100",
           isMiss && "border-sea-600 bg-sea-700/40 text-sea-300",
           !disabled && mode === "attack" && !isHit && !isSunk && !isMiss && "hover:border-sea-300 hover:bg-sea-700",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sea-300",
           disabled && "cursor-not-allowed",
           isHighlight && "ring-2 ring-sea-300",
         );
 
         const content = isHit ? "×" : isSunk ? "✕" : isMiss ? "•" : "";
         const clickable = mode === "attack" && !disabled && !isHit && !isSunk && !isMiss;
-
+        const coord = `${LABELS_COLS[c]}${row + 1}`;
+        const state = isSunk
+          ? "sunk"
+          : isHit
+            ? "hit"
+            : isMiss
+              ? "miss"
+              : mode === "own" && isShip
+                ? "ship"
+                : "empty";
         return (
           <button
             key={c}
@@ -97,7 +121,8 @@ function Row({
             onClick={() => clickable && onCellClick?.(row, c)}
             data-testid={`cell-${mode}-${row}-${c}`}
             className={classes}
-            aria-label={`${LABELS_COLS[c]}${row + 1}`}
+            role="gridcell"
+            aria-label={`${coord} — ${state}`}
           >
             {content}
           </button>
