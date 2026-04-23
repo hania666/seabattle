@@ -12,6 +12,7 @@ import { GameBoard } from "./GameBoard";
 import { ResultScreen } from "./ResultScreen";
 import { BackLink, Button, StatusCard, TxLink } from "../../components/ui";
 import { errMessage } from "../../lib/format";
+import { recordMatch } from "../../lib/stats";
 
 type Stage = "select" | "staking" | "placement" | "playing" | "result";
 
@@ -22,7 +23,7 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
   const [result, setResult] = useState<{ won: boolean; playerShots: number; botShots: number } | null>(null);
 
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const { login } = useLoginWithAbstract();
   const { writeContractAsync, isPending: isSigning, error: writeError, reset } = useWriteContract();
   const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({ hash: txHash });
@@ -55,6 +56,7 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
 
   function handleFinished(won: boolean, stats: { playerShots: number; botShots: number }) {
     setResult({ won, ...stats });
+    recordMatch(address, { mode: "pve", won, difficulty });
     setStage("result");
   }
 

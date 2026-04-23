@@ -13,6 +13,7 @@ import { PvpGameBoard } from "./PvpGameBoard";
 import { PvpResultScreen } from "./PvpResultScreen";
 import { BackLink, Button, StatusCard, TxLink, useToast } from "../../components/ui";
 import { errMessage, shortAddress, shortHash } from "../../lib/format";
+import { recordMatch } from "../../lib/stats";
 
 export function PvpScreen({ onExit }: { onExit: () => void }) {
   const { address, isConnected } = useAccount();
@@ -108,6 +109,15 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
         });
       });
       s.on("match:end", (msg) => {
+        const own = addressRef.current;
+        const stake = currentStakeRef.current;
+        if (own) {
+          recordMatch(own, {
+            mode: "pvp",
+            won: msg.winner.toLowerCase() === own.toLowerCase(),
+            stakeEth: stake?.eth,
+          });
+        }
         dispatch({
           type: "match_ended",
           winner: msg.winner,
