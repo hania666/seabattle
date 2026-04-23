@@ -39,8 +39,8 @@ export function PvpResultScreen({
         <p className="text-sm font-semibold uppercase tracking-[0.3em]">
           {won ? "Victory" : "Defeat"}
         </p>
-        <h2 className="font-display text-4xl">
-          {won ? `You win ${stakeEth} × 1.9 ETH` : "Opponent claims the pot"}
+        <h2 className="font-display text-3xl sm:text-4xl">
+          {won ? `You win ${payoutEth(stakeEth)} ETH` : "Opponent claims the pot"}
         </h2>
       </div>
 
@@ -88,4 +88,16 @@ export function PvpResultScreen({
       <BackLink onClick={onExit} />
     </div>
   );
+}
+
+/**
+ * Winner receives 95 % of the 2× stake pot = 1.9× stake. We format the result
+ * to a fixed precision so strings like "0.005" don't turn into "0.0095000…".
+ */
+function payoutEth(stakeEth: string): string {
+  const n = Number(stakeEth);
+  if (!Number.isFinite(n) || n <= 0) return stakeEth;
+  const payout = n * 1.9;
+  // Keep at most 6 significant-ish decimals, strip trailing zeros.
+  return payout.toFixed(6).replace(/\.?0+$/, "");
 }
