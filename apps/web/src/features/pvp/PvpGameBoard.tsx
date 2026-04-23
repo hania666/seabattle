@@ -1,6 +1,8 @@
 import { FLEET, type Board } from "../../lib/game/types";
 import type { ShotRecord } from "../../lib/pvp/state";
 import { BoardGrid } from "../pve/BoardGrid";
+import { FleetRoster } from "../../components/FleetRoster";
+import { useT } from "../../lib/i18n";
 import {
   applyOpponentShots,
   buildEnemyBoard,
@@ -27,6 +29,7 @@ export function PvpGameBoard({
   onFire,
   turnLabel,
 }: Props) {
+  const t = useT();
   const enemyBoard = buildEnemyBoard(ownShots);
   const playerBoardWithOpponentShots = applyOpponentShots(ownBoard, opponentShots);
 
@@ -46,11 +49,11 @@ export function PvpGameBoard({
         {turnLabel}
       </div>
 
-      <div className="grid gap-10 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-[1fr_14rem]">
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h3 className="font-display text-lg text-sea-100">Enemy waters</h3>
-            <ShipsBadge remaining={TOTAL_SHIPS - enemySunk} total={TOTAL_SHIPS} />
+            <ShipsBadge remaining={TOTAL_SHIPS - enemySunk} total={TOTAL_SHIPS} label={t("fleet.afloat")} />
           </div>
           <BoardGrid
             board={enemyBoard}
@@ -62,28 +65,41 @@ export function PvpGameBoard({
           <p className="mt-2 text-xs text-sea-400">Your shots: {ownShots.length}</p>
         </section>
 
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-display text-lg text-sea-100">Your fleet</h3>
-            <ShipsBadge remaining={TOTAL_SHIPS - ownSunk} total={TOTAL_SHIPS} />
-          </div>
-          <BoardGrid
-            board={playerBoardWithOpponentShots}
-            mode="own"
-            disabled
-            data-testid="pvp-board-own"
-          />
-          <p className="mt-2 text-xs text-sea-400">Opponent shots: {opponentShots.length}</p>
-        </section>
+        <aside className="space-y-4">
+          <FleetRoster board={enemyBoard} side="enemy" revealOnlyWhenSunk />
+          <FleetRoster board={playerBoardWithOpponentShots} side="self" />
+        </aside>
       </div>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-display text-lg text-sea-100">Your fleet</h3>
+          <ShipsBadge remaining={TOTAL_SHIPS - ownSunk} total={TOTAL_SHIPS} label={t("fleet.afloat")} />
+        </div>
+        <BoardGrid
+          board={playerBoardWithOpponentShots}
+          mode="own"
+          disabled
+          data-testid="pvp-board-own"
+        />
+        <p className="mt-2 text-xs text-sea-400">Opponent shots: {opponentShots.length}</p>
+      </section>
     </div>
   );
 }
 
-function ShipsBadge({ remaining, total }: { remaining: number; total: number }) {
+function ShipsBadge({
+  remaining,
+  total,
+  label,
+}: {
+  remaining: number;
+  total: number;
+  label: string;
+}) {
   return (
     <span className="rounded-full border border-sea-700/60 bg-sea-900/60 px-2.5 py-0.5 text-[11px] font-semibold text-sea-200">
-      Afloat: <span className="text-sea-50">{remaining}</span>/{total}
+      {label}: <span className="text-sea-50">{remaining}</span>/{total}
     </span>
   );
 }

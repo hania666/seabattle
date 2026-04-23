@@ -156,6 +156,182 @@ export function SeagullArt({ className }: { className?: string }) {
   );
 }
 
+/**
+ * War scene with continuous cannon-fire flashes from a shore battery, a
+ * silhouetted warship trading volleys, tracer arcs overhead. Purely cosmetic
+ * — sits in the gap under the hero. Uses SMIL animations (no CSS keyframes
+ * needed) so the whole scene is self-contained.
+ */
+export function WarSceneArt({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 420 140"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient id="wsSky" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="rgba(250,204,21,0.15)" />
+          <stop offset="100%" stopColor="rgba(14,165,233,0)" />
+        </linearGradient>
+        <linearGradient id="wsSea" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#0284c7" />
+          <stop offset="100%" stopColor="#082f49" />
+        </linearGradient>
+        <radialGradient id="wsFlash" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#fff7d6" />
+          <stop offset="35%" stopColor="#fbbf24" />
+          <stop offset="100%" stopColor="rgba(220,38,38,0)" />
+        </radialGradient>
+      </defs>
+      <rect width="420" height="140" fill="url(#wsSky)" rx="18" />
+      {/* Sea */}
+      <path
+        d="M0 95 Q60 88 120 95 T240 95 T360 95 T420 95 L420 140 L0 140 Z"
+        fill="url(#wsSea)"
+      />
+      {/* Enemy silhouette ship on the right */}
+      <g transform="translate(290 70)">
+        <path d="M0 22 L92 22 L98 30 L6 34 Z" fill="#111827" />
+        <rect x="20" y="10" width="16" height="12" fill="#1f2937" />
+        <rect x="50" y="6" width="8" height="16" fill="#1f2937" />
+        <rect x="54" y="-2" width="2" height="8" fill="#1f2937" />
+        {/* Gun flash from enemy */}
+        <g transform="translate(10 12)">
+          <circle cx="0" cy="0" r="7" fill="url(#wsFlash)" opacity="0">
+            <animate attributeName="opacity" values="0;0.95;0" dur="3s" repeatCount="indefinite" begin="1.7s" />
+            <animate attributeName="r" values="2;12;2" dur="3s" repeatCount="indefinite" begin="1.7s" />
+          </circle>
+        </g>
+      </g>
+      {/* Our shore battery on the left */}
+      <g transform="translate(40 60)">
+        <rect x="0" y="20" width="70" height="20" fill="#1f2937" rx="3" />
+        <rect x="0" y="14" width="70" height="8" fill="#374151" rx="2" />
+        {/* Turrets */}
+        <rect x="10" y="6" width="12" height="10" fill="#0f172a" rx="1.5" />
+        <rect x="42" y="6" width="12" height="10" fill="#0f172a" rx="1.5" />
+        <rect x="21" y="9" width="20" height="3" fill="#0f172a" />
+        <rect x="53" y="9" width="20" height="3" fill="#0f172a" />
+        {/* Flashes */}
+        <g>
+          <circle cx="72" cy="11" r="6" fill="url(#wsFlash)" opacity="0">
+            <animate attributeName="opacity" values="0;1;0" dur="2.6s" repeatCount="indefinite" />
+            <animate attributeName="r" values="2;13;2" dur="2.6s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="40" cy="11" r="5" fill="url(#wsFlash)" opacity="0">
+            <animate attributeName="opacity" values="0;1;0" dur="2.6s" repeatCount="indefinite" begin="1.3s" />
+            <animate attributeName="r" values="2;10;2" dur="2.6s" repeatCount="indefinite" begin="1.3s" />
+          </circle>
+        </g>
+      </g>
+      {/* Tracer arc (shell trajectory) */}
+      <g fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 6">
+        <path d="M120 62 Q210 10 300 70">
+          <animate attributeName="opacity" values="0;1;0" dur="2.6s" repeatCount="indefinite" begin="0.2s" />
+        </path>
+        <path d="M306 70 Q220 20 140 62" stroke="#f97316">
+          <animate attributeName="opacity" values="0;1;0" dur="3s" repeatCount="indefinite" begin="1.9s" />
+        </path>
+      </g>
+      {/* Water splashes from impacts */}
+      <g fill="#e0f2fe" opacity="0.9">
+        <g transform="translate(300 85)">
+          <path d="M-4 10 L0 -10 L4 10 Z" opacity="0">
+            <animate attributeName="opacity" values="0;0.9;0" dur="2.6s" repeatCount="indefinite" begin="0.9s" />
+          </path>
+        </g>
+        <g transform="translate(118 92)">
+          <path d="M-4 10 L0 -10 L4 10 Z" opacity="0">
+            <animate attributeName="opacity" values="0;0.9;0" dur="3s" repeatCount="indefinite" begin="2.6s" />
+          </path>
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * Biplane/recon aircraft that glides across the hero every few seconds,
+ * leaving a thin vapour trail. Absolute-positioned, so the parent controls
+ * where it sits.
+ */
+export function PlaneArt({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 120 40"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Vapour trail */}
+      <line
+        x1="0"
+        y1="22"
+        x2="70"
+        y2="22"
+        stroke="#e0f2fe"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray="2 5"
+        opacity="0.7"
+      />
+      {/* Fuselage */}
+      <path d="M70 18 L100 18 L112 22 L100 26 L70 26 Z" fill="#475569" />
+      {/* Top wing */}
+      <rect x="72" y="12" width="22" height="4" fill="#64748b" rx="1" />
+      {/* Bottom wing */}
+      <rect x="72" y="28" width="22" height="4" fill="#64748b" rx="1" />
+      <line x1="82" y1="16" x2="82" y2="28" stroke="#0f172a" strokeWidth="1" />
+      {/* Cockpit */}
+      <rect x="86" y="15" width="8" height="6" fill="#0f172a" rx="1" />
+      {/* Propeller */}
+      <circle cx="113" cy="22" r="2" fill="#0f172a" />
+      <line x1="113" y1="14" x2="113" y2="30" stroke="#e2e8f0" strokeWidth="1.5">
+        <animateTransform
+          attributeName="transform"
+          type="rotate"
+          from="0 113 22"
+          to="360 113 22"
+          dur="0.35s"
+          repeatCount="indefinite"
+        />
+      </line>
+      {/* Roundel */}
+      <circle cx="82" cy="22" r="2.2" fill="#fbbf24" stroke="#7c2d12" strokeWidth="0.7" />
+    </svg>
+  );
+}
+
+/**
+ * Small torpedo with bubble wake, travels horizontally. CSS-driven by parent
+ * (the anim-torpedo class), the SVG itself is static.
+ */
+export function TorpedoArt({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 80 20"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Wake bubbles */}
+      <circle cx="4" cy="10" r="2" fill="#e0f2fe" opacity="0.7" />
+      <circle cx="12" cy="13" r="1.5" fill="#e0f2fe" opacity="0.6" />
+      <circle cx="20" cy="9" r="1.6" fill="#e0f2fe" opacity="0.6" />
+      <circle cx="28" cy="11" r="1.2" fill="#e0f2fe" opacity="0.5" />
+      {/* Body */}
+      <rect x="35" y="7" width="34" height="6" rx="3" fill="#1f2937" />
+      {/* Warhead */}
+      <path d="M69 7 L75 10 L69 13 Z" fill="#b91c1c" />
+      {/* Fin */}
+      <path d="M35 7 L30 4 L35 10 Z" fill="#374151" />
+      <path d="M35 13 L30 16 L35 10 Z" fill="#374151" />
+    </svg>
+  );
+}
+
 export function CompassArt({ className }: { className?: string }) {
   return (
     <svg
