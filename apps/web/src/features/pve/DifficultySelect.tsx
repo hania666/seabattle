@@ -50,7 +50,7 @@ export function DifficultySelect({ onSelect, onBack }: Props) {
 
       {onBack && (
         <div className="text-center">
-          <BackLink onClick={onBack} label="← Back" />
+          <BackLink onClick={onBack} label="Back" />
         </div>
       )}
     </div>

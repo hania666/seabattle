@@ -24,7 +24,6 @@ export function BoardGrid({ board, mode, onCellClick, disabled, highlight, ...re
     <div
       className="mx-auto w-full max-w-fit select-none overflow-x-auto"
       data-testid={rest["data-testid"]}
-      role="grid"
       aria-label={mode === "own" ? "Your fleet board" : "Opponent board"}
     >
       <div
@@ -121,7 +120,6 @@ function Row({
             onClick={() => clickable && onCellClick?.(row, c)}
             data-testid={`cell-${mode}-${row}-${c}`}
             className={classes}
-            role="gridcell"
             aria-label={`${coord} — ${state}`}
           >
             {content}
