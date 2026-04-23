@@ -23,8 +23,10 @@ export default function App() {
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between border-b border-sea-700/40 px-6 py-4">
         <button
+          type="button"
           onClick={() => setScreen("home")}
           className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight"
+          aria-label="Sea3Battle home"
         >
           <LogoMark />
           Sea3<span className="text-sea-500">Battle</span>

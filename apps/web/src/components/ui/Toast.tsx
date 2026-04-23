@@ -63,7 +63,8 @@ function ToastLayer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: st
                 : "border-sea-700/60 bg-sea-900/90 text-sea-100",
           ].join(" ")}
           data-testid={`toast-${t.tone}`}
-          role="status"
+          role={t.tone === "error" ? "alert" : "status"}
+          aria-live={t.tone === "error" ? "assertive" : "polite"}
         >
           <div className="flex items-start justify-between gap-4">
             <div>
