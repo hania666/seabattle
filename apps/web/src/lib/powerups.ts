@@ -7,7 +7,7 @@
  * balances become an off-chain cache in front of `balanceOf(account, id)`.
  */
 
-import { spendCoins, type SpendResult } from "./coins";
+import { COINS_REWARD, addCoins, spendCoins, type SpendResult } from "./coins";
 
 export type PowerupId = "bomb" | "radar" | "torpedo" | "shield";
 
@@ -128,11 +128,7 @@ export function claimDaily(address: string | null | undefined): boolean {
   state.inventory.radar += 1;
   state.lastDailyClaim = Date.now();
   save(address, state);
-  // Daily crate also drops coins (see COINS_REWARD.dailyCrate).
-  // Imported lazily to avoid a cycle since coins.ts doesn't depend on powerups.
-  void import("./coins").then(({ addCoins, COINS_REWARD }) => {
-    addCoins(COINS_REWARD.dailyCrate, address);
-  });
+  addCoins(COINS_REWARD.dailyCrate, address);
   return true;
 }
 
