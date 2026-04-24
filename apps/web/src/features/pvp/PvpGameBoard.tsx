@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { FLEET, type Board } from "../../lib/game/types";
 import type { ShotRecord } from "../../lib/pvp/state";
-import { BoardGrid } from "../pve/BoardGrid";
+import { BoardGrid, type CellFx } from "../pve/BoardGrid";
 import { FleetRoster } from "../../components/FleetRoster";
 import { useT } from "../../lib/i18n";
 import {
@@ -9,6 +10,42 @@ import {
   countDistinctSunk,
   countOwnShipsSunk,
 } from "./boardBuilders";
+
+const FX_LIFETIME_MS = 900;
+
+/**
+ * Derive one-shot FX entries whenever a new shot record is appended to a
+ * shots list. Each entry is pruned after `FX_LIFETIME_MS` so the animation
+ * plays exactly once.
+ */
+function useShotFx(shots: ShotRecord[]): CellFx[] {
+  const prevLen = useRef(shots.length);
+  const [fx, setFx] = useState<CellFx[]>([]);
+
+  useEffect(() => {
+    if (shots.length > prevLen.current) {
+      const added = shots.slice(prevLen.current).map((s) => ({
+        row: s.coord[0],
+        col: s.coord[1],
+        outcome: s.outcome,
+        ts: Date.now() + Math.random(),
+      }));
+      setFx((xs) => [...xs, ...added]);
+    }
+    prevLen.current = shots.length;
+  }, [shots]);
+
+  useEffect(() => {
+    if (fx.length === 0) return;
+    const tm = setTimeout(() => {
+      const cutoff = Date.now() - FX_LIFETIME_MS;
+      setFx((xs) => xs.filter((f) => f.ts > cutoff));
+    }, FX_LIFETIME_MS);
+    return () => clearTimeout(tm);
+  }, [fx]);
+
+  return fx;
+}
 
 interface Props {
   ownBoard: Board;
@@ -36,6 +73,9 @@ export function PvpGameBoard({
   const enemySunk = countDistinctSunk(ownShots);
   const ownSunk = countOwnShipsSunk(playerBoardWithOpponentShots);
 
+  const enemyFx = useShotFx(ownShots);
+  const ownFx = useShotFx(opponentShots);
+
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4">
       <div
@@ -60,6 +100,7 @@ export function PvpGameBoard({
             mode="attack"
             onCellClick={onFire}
             disabled={!canFire}
+            fx={enemyFx}
             data-testid="pvp-board-enemy"
           />
           <p className="mt-2 text-xs text-sea-400">Your shots: {ownShots.length}</p>
@@ -80,6 +121,7 @@ export function PvpGameBoard({
           board={playerBoardWithOpponentShots}
           mode="own"
           disabled
+          fx={ownFx}
           data-testid="pvp-board-own"
         />
         <p className="mt-2 text-xs text-sea-400">Opponent shots: {opponentShots.length}</p>

@@ -108,6 +108,56 @@ export default {
           "90%": { opacity: "1" },
           "100%": { transform: "translateX(120%)", opacity: "0" },
         },
+        // Ring that expands and fades — used for miss ripple + hit shockwave.
+        "shot-ripple": {
+          "0%": { opacity: "0.9", transform: "scale(0.15)" },
+          "70%": { opacity: "0.4" },
+          "100%": { opacity: "0", transform: "scale(1.8)" },
+        },
+        // Orange/red radial burst — hit.
+        "shot-burst": {
+          "0%": { opacity: "1", transform: "scale(0.2)" },
+          "60%": { opacity: "0.85", transform: "scale(1.05)" },
+          "100%": { opacity: "0", transform: "scale(1.5)" },
+        },
+        // Water spray droplets — miss.
+        "shot-spray": {
+          "0%": { opacity: "0.9", transform: "translate(0,0) scale(0.4)" },
+          "100%": { opacity: "0", transform: "var(--fx-to) scale(0.2)" },
+        },
+        // Debris specks — hit.
+        "shot-debris": {
+          "0%": { opacity: "1", transform: "translate(0,0) scale(0.6) rotate(0deg)" },
+          "100%": {
+            opacity: "0",
+            transform: "var(--fx-to) scale(0.8) rotate(180deg)",
+          },
+        },
+        // Ship tile sinks — used when a ship is newly `sunk`.
+        "cell-sink": {
+          "0%": { opacity: "1", transform: "translateY(0) rotate(0deg)" },
+          "40%": { opacity: "1", transform: "translateY(1px) rotate(6deg)" },
+          "100%": { opacity: "0.55", transform: "translateY(18%) rotate(-4deg)" },
+        },
+        // Bomb arc: projectile launched from above onto the target cell.
+        "bomb-arc": {
+          "0%": {
+            opacity: "0",
+            transform: "translate(-40%, -240%) rotate(-30deg) scale(0.8)",
+          },
+          "10%": { opacity: "1" },
+          "60%": { opacity: "1" },
+          "100%": {
+            opacity: "0",
+            transform: "translate(0%, 0%) rotate(20deg) scale(1.1)",
+          },
+        },
+        // Radar cone sweep — subtle green scan circle.
+        "radar-sweep": {
+          "0%": { opacity: "0", transform: "scale(0.2)" },
+          "30%": { opacity: "0.9" },
+          "100%": { opacity: "0", transform: "scale(2.4)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.35s ease-out both",
@@ -123,6 +173,13 @@ export default {
         "marquee": "marquee 30s linear infinite",
         "plane-fly": "plane-fly 14s linear infinite",
         "torpedo-sail": "torpedo-sail 6s linear infinite",
+        "shot-ripple": "shot-ripple 0.8s ease-out forwards",
+        "shot-burst": "shot-burst 0.55s ease-out forwards",
+        "shot-spray": "shot-spray 0.7s ease-out forwards",
+        "shot-debris": "shot-debris 0.7s ease-out forwards",
+        "cell-sink": "cell-sink 0.8s ease-in forwards",
+        "bomb-arc": "bomb-arc 0.7s ease-in forwards",
+        "radar-sweep": "radar-sweep 0.9s ease-out forwards",
       },
     },
   },

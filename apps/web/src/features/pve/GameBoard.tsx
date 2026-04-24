@@ -13,8 +13,9 @@ import {
   type PowerupState,
 } from "../../lib/powerups";
 import { FleetRoster } from "../../components/FleetRoster";
-import { BoardGrid } from "./BoardGrid";
+import { BoardGrid, type CellFx } from "./BoardGrid";
 import { TurnTimer } from "./TurnTimer";
+import { BombArc } from "../art/BombArc";
 
 interface Props {
   difficulty: Difficulty;
@@ -31,6 +32,8 @@ interface LogEntry {
   auto?: boolean;
   powerup?: "bomb" | "radar";
 }
+
+const FX_LIFETIME_MS = 900;
 
 type AimMode = "shot" | "bomb" | "radar";
 
@@ -49,8 +52,38 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
   const [aim, setAim] = useState<AimMode>("shot");
   const [powerups, setPowerups] = useState<PowerupState>(() => loadPowerupState(address));
   const [radarFlash, setRadarFlash] = useState<null | { n: number }>(null);
+  // Ephemeral per-cell shot FX. We prune entries after the animation window.
+  const [enemyFx, setEnemyFx] = useState<CellFx[]>([]);
+  const [myFx, setMyFx] = useState<CellFx[]>([]);
+  // Bomb arc overlay targets (one per 3x3 strike). Cleared after landing.
+  const [bombArc, setBombArc] = useState<{ row: number; col: number; ts: number } | null>(null);
   const botMemory = useRef<BotMemory>(createBotMemory());
   const finished = useRef(false);
+
+  // Drop expired FX entries — keeps the prop array tight and allows a
+  // future shot at the same coord to mount a fresh animation.
+  useEffect(() => {
+    if (enemyFx.length === 0 && myFx.length === 0) return;
+    const tm = setTimeout(() => {
+      const cutoff = Date.now() - FX_LIFETIME_MS;
+      setEnemyFx((xs) => xs.filter((f) => f.ts > cutoff));
+      setMyFx((xs) => xs.filter((f) => f.ts > cutoff));
+    }, FX_LIFETIME_MS);
+    return () => clearTimeout(tm);
+  }, [enemyFx, myFx]);
+
+  function pushEnemyFx(row: number, col: number, outcome: "miss" | "hit" | "sunk") {
+    setEnemyFx((xs) => [
+      ...xs.filter((f) => !(f.row === row && f.col === col)),
+      { row, col, outcome, ts: Date.now() + Math.random() },
+    ]);
+  }
+  function pushMyFx(row: number, col: number, outcome: "miss" | "hit" | "sunk") {
+    setMyFx((xs) => [
+      ...xs.filter((f) => !(f.row === row && f.col === col)),
+      { row, col, outcome, ts: Date.now() + Math.random() },
+    ]);
+  }
 
   useEffect(() => {
     function refresh() {
@@ -112,6 +145,10 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (aim === "bomb") {
         if (powerups.inventory.bomb <= 0) return;
         consumePowerup(address, "bomb");
+        // Launch the projectile animation first, then resolve damage after
+        // it lands so the explosion and FX read as one event.
+        setBombArc({ row, col, ts: Date.now() });
+        setTimeout(() => setBombArc(null), 900);
         let board = enemyBoard;
         let sunks = 0;
         const newEntries: LogEntry[] = [];
@@ -130,6 +167,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
               outcome: res.outcome as "miss" | "hit" | "sunk",
               powerup: "bomb",
             });
+            pushEnemyFx(rr, cc, res.outcome as "miss" | "hit" | "sunk");
           }
         }
         setEnemyBoard(board);
@@ -158,6 +196,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         ...l,
         { side: "player", coord: [row, col], outcome: result.outcome as "miss" | "hit" | "sunk", auto },
       ]);
+      pushEnemyFx(row, col, result.outcome as "miss" | "hit" | "sunk");
       sfx.shot();
       if (result.outcome === "miss") setTimeout(() => sfx.miss(), 120);
       else if (result.outcome === "hit") setTimeout(() => sfx.hit(), 120);
@@ -192,6 +231,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         ...l,
         { side: "bot", coord: shot, outcome: result.outcome as "miss" | "hit" | "sunk" },
       ]);
+      pushMyFx(shot[0], shot[1], result.outcome as "miss" | "hit" | "sunk");
       if (result.outcome === "miss") sfx.miss();
       else if (result.outcome === "hit") sfx.hit();
       else if (result.outcome === "sunk") sfx.sunk();
@@ -273,13 +313,19 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
               {radarFlash.n > 0 ? t("pu.radarResult", { n: radarFlash.n }) : t("pu.radarClear")}
             </div>
           )}
-          <BoardGrid
-            board={publicView(enemyBoard)}
-            mode="attack"
-            onCellClick={(r, c) => handleAttack(r, c, false)}
-            disabled={!yourTurn}
-            data-testid="board-enemy"
-          />
+          <div className="relative">
+            <BoardGrid
+              board={publicView(enemyBoard)}
+              mode="attack"
+              onCellClick={(r, c) => handleAttack(r, c, false)}
+              disabled={!yourTurn}
+              fx={enemyFx}
+              data-testid="board-enemy"
+            />
+            {bombArc && (
+              <BombArc key={bombArc.ts} row={bombArc.row} col={bombArc.col} />
+            )}
+          </div>
           <div className="mt-2 text-xs text-sea-400">
             Your shots: <strong className="text-sea-200">{playerShots}</strong>
           </div>
@@ -305,7 +351,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-display text-lg text-sea-100">Your fleet</h3>
         </div>
-        <BoardGrid board={myBoard} mode="own" disabled data-testid="board-own" />
+        <BoardGrid board={myBoard} mode="own" disabled fx={myFx} data-testid="board-own" />
         <p className="mt-2 text-xs text-sea-400">
           Bot shots: <strong className="text-sea-200">{botShots}</strong>
         </p>

@@ -8,6 +8,19 @@ import {
   WaterCell,
   type SegmentOrientation,
 } from "../art/CellArt";
+import { ShotFX, type ShotOutcome } from "../art/ShotFX";
+
+/**
+ * One-shot FX overlay request: identifies a single shot the UI should
+ * animate once. `ts` is used as the React key so the same coord can
+ * re-trigger the animation on a repeat shot.
+ */
+export interface CellFx {
+  row: number;
+  col: number;
+  outcome: ShotOutcome;
+  ts: number;
+}
 
 function cx(...parts: Array<string | false | undefined | null>): string {
   return parts.filter(Boolean).join(" ");
@@ -21,6 +34,8 @@ interface Props {
   onCellClick?: (row: number, col: number) => void;
   disabled?: boolean;
   highlight?: Coord[];
+  /** Ephemeral FX to play once on specific cells. */
+  fx?: CellFx[];
   "data-testid"?: string;
 }
 
@@ -47,9 +62,24 @@ function buildSegmentMap(board: Board): Map<string, SegmentInfo> {
   return map;
 }
 
-export function BoardGrid({ board, mode, onCellClick, disabled, highlight, ...rest }: Props) {
+export function BoardGrid({
+  board,
+  mode,
+  onCellClick,
+  disabled,
+  highlight,
+  fx,
+  ...rest
+}: Props) {
   const highlightSet = new Set(highlight?.map(([r, c]) => `${r},${c}`) ?? []);
   const segments = useMemo(() => buildSegmentMap(board), [board]);
+  // Fold the fx array into a coord-keyed map so Row can render the
+  // animation without scanning the list per cell.
+  const fxMap = useMemo(() => {
+    const m = new Map<string, CellFx>();
+    fx?.forEach((f) => m.set(`${f.row},${f.col}`, f));
+    return m;
+  }, [fx]);
 
   return (
     <div
@@ -83,6 +113,7 @@ export function BoardGrid({ board, mode, onCellClick, disabled, highlight, ...re
             disabled={disabled}
             highlightSet={highlightSet}
             segments={segments}
+            fxMap={fxMap}
           />
         ))}
       </div>
@@ -98,6 +129,7 @@ function Row({
   disabled,
   highlightSet,
   segments,
+  fxMap,
 }: {
   row: number;
   board: Board;
@@ -106,6 +138,7 @@ function Row({
   disabled?: boolean;
   highlightSet: Set<string>;
   segments: Map<string, SegmentInfo>;
+  fxMap: Map<string, CellFx>;
 }) {
   return (
     <>
@@ -182,6 +215,10 @@ function Row({
             {/* FX layers on top */}
             {isMiss && <MissCell />}
             {isHit && <HitCell />}
+            {(() => {
+              const f = fxMap.get(`${row},${c}`);
+              return f ? <ShotFX key={f.ts} outcome={f.outcome} /> : null;
+            })()}
           </button>
         );
       })}
