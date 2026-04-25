@@ -214,6 +214,35 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "ach.firstTryHard.title": "Beginner's luck",
     "ach.firstTryHard.desc": "Win on Hard on your first try.",
 
+    // Legal
+    "legal.gate.title": "One quick check",
+    "legal.gate.subtitle": "Before you enter the game",
+    "legal.gate.intro":
+      "SeaBattle is a skill-based game. You can play for free (PvE Easy) or stake testnet/real ETH against another player. Please confirm two things before you continue.",
+    "legal.gate.age.check": "I am at least 18 years old (or the age of majority where I live).",
+    "legal.gate.tos.before": "I have read and agree to the",
+    "legal.gate.tos.link": "Terms of Service",
+    "legal.gate.and": "and",
+    "legal.gate.privacy.link": "Privacy Policy",
+    "legal.gate.disclaimer":
+      "SeaBattle is not offered in the US states of WA, AZ, LA, MT, SD, SC, TN, AR, CT, DE, or in UAE / Singapore / China / Saudi Arabia / sanctioned countries. Play responsibly.",
+    "legal.gate.accept": "Enter SeaBattle",
+    "legal.gate.help": "Responsible gaming help",
+
+    "legal.geo.sanctioned.title": "SeaBattle is not available in your region",
+    "legal.geo.country.title": "SeaBattle is not available in your country",
+    "legal.geo.state.title": "SeaBattle is not available in your state",
+    "legal.geo.body":
+      "Based on your IP address, you are in a jurisdiction where we do not offer real-money skill wagering. This decision is not about you personally — it protects the service from local regulatory risk.",
+    "legal.geo.detected": "Detected",
+    "legal.geo.disclaimer":
+      "If you believe this is a mistake (e.g. you are connected through a VPN exit node in one of these regions), disable the VPN and reload.",
+
+    "footer.terms": "Terms",
+    "footer.privacy": "Privacy",
+    "footer.responsible": "Responsible gaming · 1-800-GAMBLER",
+    "footer.tagline": "Skill game · Non-custodial · 18+",
+
     // Common
     "common.back": "Back",
     "common.home": "Home",
@@ -403,6 +432,34 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "ach.firstTryHard.title": "Удача новичка",
     "ach.firstTryHard.desc": "Победа на Hard с первой попытки.",
 
+    "legal.gate.title": "Короткая проверка",
+    "legal.gate.subtitle": "Прежде чем войти в игру",
+    "legal.gate.intro":
+      "SeaBattle — игра на умение. Играть можно бесплатно (PvE Easy) или ставить тестовый/реальный ETH против другого игрока. Подтверди два пункта, прежде чем продолжить.",
+    "legal.gate.age.check": "Мне исполнилось 18 лет (или возраст совершеннолетия в моей стране).",
+    "legal.gate.tos.before": "Я прочитал(а) и согласен(на) с",
+    "legal.gate.tos.link": "Условиями использования",
+    "legal.gate.and": "и",
+    "legal.gate.privacy.link": "Политикой конфиденциальности",
+    "legal.gate.disclaimer":
+      "SeaBattle недоступен в штатах США WA, AZ, LA, MT, SD, SC, TN, AR, CT, DE, а также в ОАЭ / Сингапуре / Китае / Саудовской Аравии / санкционных странах. Играй ответственно.",
+    "legal.gate.accept": "Войти в SeaBattle",
+    "legal.gate.help": "Помощь по зависимости",
+
+    "legal.geo.sanctioned.title": "SeaBattle недоступен в вашем регионе",
+    "legal.geo.country.title": "SeaBattle недоступен в вашей стране",
+    "legal.geo.state.title": "SeaBattle недоступен в вашем штате",
+    "legal.geo.body":
+      "По IP-адресу вы находитесь в юрисдикции, где мы не предлагаем платные игры на умение. Это не про вас лично — это защита сервиса от локальных регуляторных рисков.",
+    "legal.geo.detected": "Обнаружено",
+    "legal.geo.disclaimer":
+      "Если это ошибка (например, вы подключены через VPN с выходом в одной из этих стран) — отключите VPN и перезагрузите страницу.",
+
+    "footer.terms": "Условия",
+    "footer.privacy": "Приватность",
+    "footer.responsible": "Ответственная игра · 1-800-GAMBLER",
+    "footer.tagline": "Игра на умение · Некастодиальная · 18+",
+
     "common.back": "Назад",
     "common.home": "На главную",
     "common.cancel": "Отмена",
@@ -590,6 +647,34 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "ach.dailyRoutine.desc": "Забери 7 щоденних крейтів.",
     "ach.firstTryHard.title": "Щастя новачка",
     "ach.firstTryHard.desc": "Перемога на Hard з першої спроби.",
+
+    "legal.gate.title": "Коротка перевірка",
+    "legal.gate.subtitle": "Перш ніж увійти у гру",
+    "legal.gate.intro":
+      "SeaBattle — гра на вміння. Грати можна безкоштовно (PvE Easy) або ставити тестовий/реальний ETH проти іншого гравця. Підтверди два пункти, перш ніж продовжити.",
+    "legal.gate.age.check": "Мені виповнилось 18 років (або вік повноліття у моїй країні).",
+    "legal.gate.tos.before": "Я прочитав(ла) і погоджуюсь з",
+    "legal.gate.tos.link": "Умовами використання",
+    "legal.gate.and": "та",
+    "legal.gate.privacy.link": "Політикою конфіденційності",
+    "legal.gate.disclaimer":
+      "SeaBattle недоступний у штатах США WA, AZ, LA, MT, SD, SC, TN, AR, CT, DE, а також в ОАЕ / Сінгапурі / Китаї / Саудівській Аравії / санкційних країнах. Грай відповідально.",
+    "legal.gate.accept": "Увійти в SeaBattle",
+    "legal.gate.help": "Допомога при залежності",
+
+    "legal.geo.sanctioned.title": "SeaBattle недоступний у вашому регіоні",
+    "legal.geo.country.title": "SeaBattle недоступний у вашій країні",
+    "legal.geo.state.title": "SeaBattle недоступний у вашому штаті",
+    "legal.geo.body":
+      "За IP-адресою ви в юрисдикції, де ми не пропонуємо платні ігри на вміння. Це не про вас особисто — це захист сервісу від локальних регуляторних ризиків.",
+    "legal.geo.detected": "Визначено",
+    "legal.geo.disclaimer":
+      "Якщо це помилка (наприклад, ви підключені через VPN з виходом в одній з цих країн) — вимкніть VPN і перезавантажте сторінку.",
+
+    "footer.terms": "Умови",
+    "footer.privacy": "Приватність",
+    "footer.responsible": "Відповідальна гра · 1-800-GAMBLER",
+    "footer.tagline": "Гра на вміння · Некастодіальна · 18+",
 
     "common.back": "Назад",
     "common.home": "На головну",
