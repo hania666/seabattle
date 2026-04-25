@@ -74,10 +74,10 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
       if (!m.won) break;
       winStreak++;
     }
+    addProgress(address, "hundredMatches");
+    addProgress(address, "fiveHundredMatches");
     if (won) {
       grantPveReward(address, true, difficulty, winStreak);
-      addProgress(address, "hundredMatches");
-      addProgress(address, "fiveHundredMatches");
       markIf(address, "firstWin", priorTotalWins === 0);
       recordProgress(address, "tenWinStreak", winStreak);
       markIf(address, "ironFist", difficulty === 2 && !stats.powerupsUsed);
