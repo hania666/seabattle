@@ -27,11 +27,7 @@ const LeaderboardScreen = lazy(() =>
     default: m.LeaderboardScreen,
   })),
 );
-const ShopScreen = lazy(() =>
-  import("./features/shop/ShopScreen").then((m) => ({ default: m.ShopScreen })),
-);
-
-type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard" | "shop";
+type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard";
 
 export default function App() {
   const t = useT();
@@ -127,7 +123,6 @@ export default function App() {
                 onPvP={() => goto("pvp")}
                 onProfile={() => goto("profile")}
                 onLeaderboard={() => goto("leaderboard")}
-                onShop={() => goto("shop")}
               />
             )}
             {screen === "pve" && <PveScreen onExit={() => goto("home")} />}
@@ -142,7 +137,6 @@ export default function App() {
             {screen === "leaderboard" && (
               <LeaderboardScreen onExit={() => goto("home")} />
             )}
-            {screen === "shop" && <ShopScreen onExit={() => goto("home")} />}
           </Suspense>
         </main>
 

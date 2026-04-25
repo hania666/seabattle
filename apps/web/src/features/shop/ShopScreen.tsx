@@ -21,6 +21,18 @@ interface Props {
 
 export function ShopScreen({ onExit }: Props) {
   const t = useT();
+  return (
+    <div className="mx-auto max-w-4xl space-y-5 py-4">
+      <ShopBody />
+      <div className="pt-2">
+        <BackLink onClick={onExit} label={t("common.home")} />
+      </div>
+    </div>
+  );
+}
+
+export function ShopBody({ compact = false }: { compact?: boolean } = {}) {
+  const t = useT();
   const { address } = useAccount();
   const [state, setState] = useState<PowerupState>(() => loadPowerupState(address));
   const coins = useCoins(address);
@@ -67,7 +79,7 @@ export function ShopScreen({ onExit }: Props) {
   const minutes = Math.floor((remaining % 3_600_000) / 60_000);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 py-4">
+    <div className={compact ? "space-y-4" : "space-y-5"}>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sea-400">
@@ -180,10 +192,6 @@ export function ShopScreen({ onExit }: Props) {
           );
         })}
       </section>
-
-      <div className="pt-2">
-        <BackLink onClick={onExit} label={t("common.home")} />
-      </div>
     </div>
   );
 }
