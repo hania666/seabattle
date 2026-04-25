@@ -1,28 +1,28 @@
 /**
- * Power-ups (bombs / radars / torpedoes / shields) — local-only economy.
- * Balance + inventory live in localStorage keyed by wallet address (or
- * "guest"), same pattern as `stats.ts`. XP is spent against the stats XP
- * counter so the two systems stay consistent.
+ * Power-ups (bombs / radars / torpedoes / shields) — local-only inventory.
+ * Balance of coins lives in `./coins`; inventory and daily-claim marker
+ * live here. Both are keyed by wallet address (or "guest").
  *
  * Phase 7 migration: when we deploy a PowerUps ERC-1155 contract, these
  * balances become an off-chain cache in front of `balanceOf(account, id)`.
  */
 
-import { loadStats, saveStats } from "./stats";
+import { COINS_REWARD, addCoins, spendCoins, type SpendResult } from "./coins";
+import { addProgress, recordPurchase } from "./achievements";
 
 export type PowerupId = "bomb" | "radar" | "torpedo" | "shield";
 
 export interface PowerupDef {
   id: PowerupId;
-  cost: number;
+  cost: number; // coins
   icon: string;
 }
 
 export const POWERUPS: PowerupDef[] = [
-  { id: "bomb", cost: 200, icon: "💣" },
-  { id: "radar", cost: 150, icon: "📡" },
-  { id: "torpedo", cost: 500, icon: "🚀" },
-  { id: "shield", cost: 400, icon: "🛡" },
+  { id: "bomb", cost: 20, icon: "💣" },
+  { id: "radar", cost: 15, icon: "📡" },
+  { id: "torpedo", cost: 50, icon: "🚀" },
+  { id: "shield", cost: 40, icon: "🛡" },
 ];
 
 export type Inventory = Record<PowerupId, number>;
@@ -75,19 +75,30 @@ function save(address: string | null | undefined, state: PowerupState): void {
   }
 }
 
+export type PurchaseResult =
+  | { ok: true; coinsLeft: number }
+  | { ok: false; reason: "insufficient-coins" | "unknown"; need?: number; have?: number };
+
 export function purchasePowerup(
   address: string | null | undefined,
   id: PowerupId,
-): { ok: true; xpLeft: number } | { ok: false; reason: "insufficient-xp" | "unknown" } {
+): PurchaseResult {
   const def = POWERUPS.find((p) => p.id === id);
   if (!def) return { ok: false, reason: "unknown" };
-  const stats = loadStats(address);
-  if (stats.xp < def.cost) return { ok: false, reason: "insufficient-xp" };
+  const spend: SpendResult = spendCoins(def.cost, address);
+  if (!spend.ok) {
+    return {
+      ok: false,
+      reason: "insufficient-coins",
+      need: def.cost,
+      have: spend.balance,
+    };
+  }
   const state = loadPowerupState(address);
   state.inventory[id] += 1;
   save(address, state);
-  saveStats({ ...stats, xp: stats.xp - def.cost }, address);
-  return { ok: true, xpLeft: stats.xp - def.cost };
+  recordPurchase(address, id);
+  return { ok: true, coinsLeft: spend.balance };
 }
 
 export function consumePowerup(
@@ -98,6 +109,9 @@ export function consumePowerup(
   if (state.inventory[id] <= 0) return false;
   state.inventory[id] -= 1;
   save(address, state);
+  if (id === "bomb") addProgress(address, "bombMaster");
+  else if (id === "torpedo") addProgress(address, "torpedoMaster");
+  else if (id === "shield") addProgress(address, "shieldBearer");
   return true;
 }
 
@@ -119,6 +133,8 @@ export function claimDaily(address: string | null | undefined): boolean {
   state.inventory.radar += 1;
   state.lastDailyClaim = Date.now();
   save(address, state);
+  addCoins(COINS_REWARD.dailyCrate, address);
+  addProgress(address, "dailyRoutine");
   return true;
 }
 

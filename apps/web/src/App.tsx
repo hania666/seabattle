@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { useAccount, useDisconnect } from "wagmi";
 import { shortAddress } from "./lib/format";
@@ -6,10 +6,12 @@ import { Splash } from "./features/splash/Splash";
 import { splashSeen } from "./features/splash/splashState";
 import { Hud } from "./components/Hud";
 import { SettingsModal } from "./components/SettingsModal";
+import { AchievementToastBridge } from "./features/profile/AchievementToastBridge";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Home } from "./features/home/Home";
 import { sfx } from "./lib/audio";
 import { useT } from "./lib/i18n";
+import { runBootstrap } from "./lib/bootstrap";
 
 const PveScreen = lazy(() =>
   import("./features/pve/PveScreen").then((m) => ({ default: m.PveScreen })),
@@ -40,6 +42,13 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(() => !splashSeen());
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Bootstrap: run coin migration + pending inactivity decay once per
+  // address. Idempotent — migrateCoins stores a flag; decay shifts the last
+  // match timestamp forward so we never double-charge.
+  useEffect(() => {
+    runBootstrap(address);
+  }, [address]);
+
   function goto(next: Screen) {
     sfx.click();
     setScreen(next);
@@ -49,6 +58,7 @@ export default function App() {
     <>
       {showSplash && <Splash onFinish={() => setShowSplash(false)} />}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AchievementToastBridge />
       <div className="flex min-h-screen flex-col">
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-sea-800/60 bg-sea-950/70 px-4 py-3 backdrop-blur sm:px-6">
           <button

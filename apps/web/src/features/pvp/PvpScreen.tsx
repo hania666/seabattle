@@ -13,7 +13,14 @@ import { PvpGameBoard } from "./PvpGameBoard";
 import { PvpResultScreen } from "./PvpResultScreen";
 import { BackLink, Button, StatusCard, TxLink, useToast } from "../../components/ui";
 import { errMessage, shortAddress, shortHash } from "../../lib/format";
-import { recordMatch } from "../../lib/stats";
+import { loadStats, recordMatch, saveStats } from "../../lib/stats";
+import { addProgress, markIf } from "../../lib/achievements";
+import {
+  applyXpDelta,
+  currentLossStreak,
+  lossStreakPenalty,
+  STREAK_THRESHOLD,
+} from "../../lib/rankDecay";
 
 export function PvpScreen({ onExit }: { onExit: () => void }) {
   const { address, isConnected } = useAccount();
@@ -112,11 +119,34 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
         const own = addressRef.current;
         const stake = currentStakeRef.current;
         if (own) {
-          recordMatch(own, {
+          const won = msg.winner.toLowerCase() === own.toLowerCase();
+          const prev = loadStats(own);
+          const priorTotalWins = prev.pveWins + prev.pvpWins;
+          const next = recordMatch(own, {
             mode: "pvp",
-            won: msg.winner.toLowerCase() === own.toLowerCase(),
+            won,
             stakeEth: stake?.eth,
           });
+          addProgress(own, "hundredMatches");
+          addProgress(own, "fiveHundredMatches");
+          if (won) {
+            markIf(own, "firstWin", priorTotalWins === 0);
+            markIf(own, "rankMatros", next.xp >= 100);
+            markIf(own, "rankMichman", next.xp >= 1500);
+            markIf(own, "rankLieutenant", next.xp >= 3000);
+            markIf(own, "rankAdmiral", next.xp >= 20000);
+          }
+          if (!won) {
+            const streak = currentLossStreak(next);
+            if (streak >= STREAK_THRESHOLD) {
+              const prevXp = loadStats(own).xp;
+              const penalty = lossStreakPenalty(prevXp);
+              const xpNext = applyXpDelta(prevXp, -penalty);
+              if (xpNext !== prevXp) {
+                saveStats({ ...next, xp: xpNext }, own);
+              }
+            }
+          }
         }
         dispatch({
           type: "match_ended",
@@ -159,7 +189,11 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
   }, []);
 
   const handleStart = useCallback(
-    async (mode: "host" | "join", stake: StakeOption) => {
+    // pvpMode is reserved for a follow-up PR where Arcade grants a symmetric
+    // 1 Bomb + 1 Radar loadout via the server. Classic is the only active
+    // variant for now; we still accept the arg so StakeSelect's signature is
+    // stable when the Arcade path ships.
+    async (mode: "host" | "join", stake: StakeOption, _pvpMode: "classic" | "arcade") => {
       setError(null);
       currentStakeRef.current = stake;
       currentModeRef.current = mode;

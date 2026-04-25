@@ -12,15 +12,24 @@ import {
   loadPowerupState,
   type PowerupState,
 } from "../../lib/powerups";
+import { markIf } from "../../lib/achievements";
 import { FleetRoster } from "../../components/FleetRoster";
 import { BoardGrid, type CellFx } from "./BoardGrid";
 import { TurnTimer } from "./TurnTimer";
 import { BombArc } from "../art/BombArc";
 
+export interface PveFinishStats {
+  playerShots: number;
+  botShots: number;
+  powerupsUsed: boolean;
+  durationMs: number;
+  firstSunkEmitted: boolean;
+}
+
 interface Props {
   difficulty: Difficulty;
   playerBoard: Board;
-  onFinished: (won: boolean, stats: { playerShots: number; botShots: number }) => void;
+  onFinished: (won: boolean, stats: PveFinishStats) => void;
 }
 
 type Turn = "player" | "bot";
@@ -59,6 +68,9 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
   const [bombArc, setBombArc] = useState<{ row: number; col: number; ts: number } | null>(null);
   const botMemory = useRef<BotMemory>(createBotMemory());
   const finished = useRef(false);
+  const startedAt = useRef(Date.now());
+  const powerupsUsed = useRef(false);
+  const firstSunkEmitted = useRef(false);
 
   // Drop expired FX entries — keeps the prop array tight and allows a
   // future shot at the same coord to mount a fresh animation.
@@ -98,7 +110,13 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
     (won: boolean, shotsP: number, shotsB: number) => {
       finished.current = true;
       setTimeout(() => (won ? sfx.victory() : sfx.defeat()), 400);
-      onFinished(won, { playerShots: shotsP, botShots: shotsB });
+      onFinished(won, {
+        playerShots: shotsP,
+        botShots: shotsB,
+        powerupsUsed: powerupsUsed.current,
+        durationMs: Date.now() - startedAt.current,
+        firstSunkEmitted: firstSunkEmitted.current,
+      });
     },
     [onFinished],
   );
@@ -119,6 +137,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (aim === "radar") {
         if (powerups.inventory.radar <= 0) return;
         consumePowerup(address, "radar");
+        powerupsUsed.current = true;
         let count = 0;
         for (let dr = -1; dr <= 1; dr++) {
           for (let dc = -1; dc <= 1; dc++) {
@@ -145,6 +164,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (aim === "bomb") {
         if (powerups.inventory.bomb <= 0) return;
         consumePowerup(address, "bomb");
+        powerupsUsed.current = true;
         // Launch the projectile animation first, then resolve damage after
         // it lands so the explosion and FX read as one event.
         setBombArc({ row, col, ts: Date.now() });
@@ -160,7 +180,13 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
             const res = fireAtCell(board, rr, cc);
             if (res.outcome === "already") continue;
             board = res.board;
-            if (res.outcome === "sunk") sunks++;
+            if (res.outcome === "sunk") {
+              sunks++;
+              if (!firstSunkEmitted.current) {
+                firstSunkEmitted.current = true;
+                markIf(address, "firstBlood", true);
+              }
+            }
             newEntries.push({
               side: "player",
               coord: [rr, cc],
@@ -201,6 +227,10 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (result.outcome === "miss") setTimeout(() => sfx.miss(), 120);
       else if (result.outcome === "hit") setTimeout(() => sfx.hit(), 120);
       else if (result.outcome === "sunk") setTimeout(() => sfx.sunk(), 120);
+      if (result.outcome === "sunk" && !firstSunkEmitted.current) {
+        firstSunkEmitted.current = true;
+        markIf(address, "firstBlood", true);
+      }
       if (allShipsSunk(result.board)) {
         finalize(true, playerShots + 1, botShots);
         return;
