@@ -142,12 +142,16 @@ function ModeCard({ active, onSelect, title, desc, badge, testid, soon }: ModeCa
       type="button"
       role="radio"
       aria-checked={active}
-      onClick={onSelect}
+      aria-disabled={soon || undefined}
+      disabled={soon}
+      onClick={soon ? undefined : onSelect}
       data-testid={testid}
       className={`relative rounded-2xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sea-300 ${
-        active
-          ? "border-gold-400/70 bg-sea-800 shadow-glow-gold"
-          : "border-sea-700/60 bg-sea-900/60 hover:border-sea-500"
+        soon
+          ? "cursor-not-allowed border-sea-700/40 bg-sea-900/40 opacity-60"
+          : active
+            ? "border-gold-400/70 bg-sea-800 shadow-glow-gold"
+            : "border-sea-700/60 bg-sea-900/60 hover:border-sea-500"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
