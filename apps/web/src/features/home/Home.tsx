@@ -19,10 +19,9 @@ interface Props {
   onPvP: () => void;
   onProfile: () => void;
   onLeaderboard: () => void;
-  onShop: () => void;
 }
 
-export function Home({ onPvE, onPvP, onProfile, onLeaderboard, onShop }: Props) {
+export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
   const t = useT();
   const { address } = useAccount();
   const [stats, setStats] = useState<PlayerStats>(() => loadStats(address));
@@ -127,15 +126,6 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard, onShop }: Props) 
             <ChipButton
               onClick={() => {
                 sfx.click();
-                onShop();
-              }}
-              data-testid="home-shop"
-            >
-              {t("nav.shop")}
-            </ChipButton>
-            <ChipButton
-              onClick={() => {
-                sfx.click();
                 onProfile();
               }}
               data-testid="home-profile"
@@ -228,15 +218,15 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard, onShop }: Props) 
           }}
         />
         <ModeTile
-          title={t("home.tile.shop.title")}
-          subtitle={t("home.tile.shop.sub")}
-          description={t("home.tile.shop.desc")}
-          cta={t("home.tile.shop.cta")}
+          title={t("home.tile.profile.title")}
+          subtitle={t("home.tile.profile.sub")}
+          description={t("home.tile.profile.desc")}
+          cta={t("home.tile.profile.cta")}
           tone="coral"
           stat={`${stats.xp.toLocaleString()} XP`}
           onClick={() => {
             sfx.click();
-            onShop();
+            onProfile();
           }}
         />
         <ModeTile

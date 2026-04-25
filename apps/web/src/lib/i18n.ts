@@ -60,11 +60,11 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "home.tile.leaderboard.desc":
       "Top captains ranked by XP. Your spot updates after every match. Daily & all-time boards.",
     "home.tile.leaderboard.cta": "VIEW",
-    "home.tile.shop.title": "SHIP SHOP",
-    "home.tile.shop.sub": "Powerups for Coins",
-    "home.tile.shop.desc":
-      "Spend Coins on bombs, radars, torpedoes, shields. Daily free crate on login.",
-    "home.tile.shop.cta": "BROWSE",
+    "home.tile.profile.title": "PROFILE",
+    "home.tile.profile.sub": "Stats · Shop · Achievements",
+    "home.tile.profile.desc":
+      "Your rank, balance, achievements and the powerup shop — all in one place.",
+    "home.tile.profile.cta": "OPEN",
 
     // Settings modal
     "settings.title": "Settings",
@@ -258,11 +258,11 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "home.tile.leaderboard.desc":
       "Топ капитанов по XP. Твоё место обновляется после каждого матча.",
     "home.tile.leaderboard.cta": "СМОТРЕТЬ",
-    "home.tile.shop.title": "МАГАЗИН",
-    "home.tile.shop.sub": "Плюшки за монеты",
-    "home.tile.shop.desc":
-      "Бомбы, радары, торпеды, щиты — за монеты. Ежедневный бесплатный ящик.",
-    "home.tile.shop.cta": "ОТКРЫТЬ",
+    "home.tile.profile.title": "ПРОФИЛЬ",
+    "home.tile.profile.sub": "Статы · Магазин · Достижения",
+    "home.tile.profile.desc":
+      "Ранг, баланс, достижения и магазин плюшек — всё в одном месте.",
+    "home.tile.profile.cta": "ОТКРЫТЬ",
 
     "settings.title": "Настройки",
     "settings.close": "Закрыть настройки",
@@ -445,11 +445,11 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "home.tile.leaderboard.desc":
       "Топ капітанів за XP. Твоє місце оновлюється після кожного матчу.",
     "home.tile.leaderboard.cta": "ПЕРЕГЛЯНУТИ",
-    "home.tile.shop.title": "МАГАЗИН",
-    "home.tile.shop.sub": "Плюшки за монети",
-    "home.tile.shop.desc":
-      "Бомби, радари, торпеди, щити — за монети. Щоденна безкоштовна скриня.",
-    "home.tile.shop.cta": "ВІДКРИТИ",
+    "home.tile.profile.title": "ПРОФІЛЬ",
+    "home.tile.profile.sub": "Стати · Магазин · Досягнення",
+    "home.tile.profile.desc":
+      "Ранг, баланс, досягнення та магазин плюшок — все в одному місці.",
+    "home.tile.profile.cta": "ВІДКРИТИ",
 
     "settings.title": "Налаштування",
     "settings.close": "Закрити налаштування",
