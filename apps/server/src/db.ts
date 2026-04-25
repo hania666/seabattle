@@ -19,8 +19,7 @@ export function getPool(): Pool {
   // explicit ssl option below. Supabase's pooler cert chain isn't always
   // in Node's bundled CAs (musl/Alpine), so we accept the chain after
   // verifying the hostname instead.
-  const cleanUrl = url.replace(/[?&]sslmode=[^&]*/, (m) => (m.startsWith("?") ? "?" : "&"))
-    .replace(/[?&]$/, "");
+  const cleanUrl = stripSslMode(url);
   pool = new Pool({
     connectionString: cleanUrl,
     ssl: { rejectUnauthorized: false },
@@ -32,6 +31,21 @@ export function getPool(): Pool {
     console.error("[db] idle client error", err);
   });
   return pool;
+}
+
+/**
+ * Remove every `sslmode=...` query param from a Postgres URL while keeping
+ * the rest of the query string syntactically valid. Exported for tests.
+ */
+export function stripSslMode(url: string): string {
+  const qIdx = url.indexOf("?");
+  if (qIdx === -1) return url;
+  const base = url.slice(0, qIdx);
+  const params = url
+    .slice(qIdx + 1)
+    .split("&")
+    .filter((p) => p.length > 0 && !/^sslmode=/i.test(p));
+  return params.length === 0 ? base : `${base}?${params.join("&")}`;
 }
 
 export function isDbConfigured(): boolean {
