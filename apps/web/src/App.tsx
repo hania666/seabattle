@@ -12,6 +12,7 @@ import { Home } from "./features/home/Home";
 import { sfx } from "./lib/audio";
 import { useT } from "./lib/i18n";
 import { runBootstrap } from "./lib/bootstrap";
+import { setSentryWallet } from "./lib/sentry";
 
 const PveScreen = lazy(() =>
   import("./features/pve/PveScreen").then((m) => ({ default: m.PveScreen })),
@@ -46,6 +47,7 @@ export default function App() {
   // match timestamp forward so we never double-charge.
   useEffect(() => {
     runBootstrap(address);
+    setSentryWallet(address ?? null);
   }, [address]);
 
   function goto(next: Screen) {
