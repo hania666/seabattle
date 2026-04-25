@@ -355,9 +355,25 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
           {radarFlash && (
             <div
               role="status"
-              className="mt-2 animate-fade-in rounded-xl bg-sea-500/20 px-3 py-2 text-xs font-semibold text-sea-100 ring-1 ring-sea-400/50"
+              className={`mt-2 flex animate-fade-in items-center gap-3 rounded-2xl px-4 py-3 ring-2 ${
+                radarFlash.n > 0
+                  ? "bg-sea-500/30 text-sea-50 ring-sea-300/70 shadow-glow"
+                  : "bg-emerald-500/20 text-emerald-100 ring-emerald-400/50"
+              }`}
             >
-              {radarFlash.n > 0 ? t("pu.radarResult", { n: radarFlash.n }) : t("pu.radarClear")}
+              <span className="text-2xl" aria-hidden>
+                📡
+              </span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.25em] opacity-70">
+                  {t("pu.title")}
+                </span>
+                <span className="font-display text-base font-bold sm:text-lg">
+                  {radarFlash.n > 0
+                    ? t("pu.radarResult", { n: radarFlash.n })
+                    : t("pu.radarClear")}
+                </span>
+              </div>
             </div>
           )}
           <div className="relative mt-3">

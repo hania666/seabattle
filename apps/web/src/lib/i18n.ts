@@ -123,6 +123,7 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "shop.buy": "Buy",
     "shop.owned": "Owned",
     "shop.need": "Need {{n}} more",
+    "shop.full": "Inventory full ({{n}})",
 
     // Coins / rewards
     "coins.label": "Coins",
@@ -315,6 +316,7 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "shop.buy": "Купить",
     "shop.owned": "В инвентаре",
     "shop.need": "Нужно ещё {{n}}",
+    "shop.full": "Инвентарь полон · лимит {{n}}",
 
     "coins.label": "Монеты",
     "coins.earned": "+{{n}} монет",
@@ -502,6 +504,7 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "shop.buy": "Купити",
     "shop.owned": "В інвентарі",
     "shop.need": "Потрібно ще {{n}}",
+    "shop.full": "Інвентар повний · ліміт {{n}}",
 
     "coins.label": "Монети",
     "coins.earned": "+{{n}} монет",
