@@ -9,6 +9,7 @@ import {
   dailyClaimRemainingMs,
   loadPowerupState,
   POWERUPS,
+  INVENTORY_CAP,
   purchasePowerup,
   type PowerupId,
   type PowerupState,
@@ -54,23 +55,30 @@ export function ShopBody({ compact = false }: { compact?: boolean } = {}) {
     if (res.ok) {
       sfx.coin();
       setFlash({ kind: "ok", text: `+1 ${t(`shop.${id}.name`)}` });
-    } else {
+    } else if (res.reason === "insufficient-coins") {
       setFlash({
         kind: "err",
-        text: t(`shop.need`, {
-          n: res.reason === "insufficient-coins" ? (res.need ?? 0) - (res.have ?? 0) : 0,
-        }),
+        text: t("shop.need", { n: res.need - res.have }),
+      });
+    } else if (res.reason === "inventory-full") {
+      setFlash({
+        kind: "err",
+        text: t("shop.full", { n: res.cap }),
       });
     }
     setTimeout(() => setFlash(null), 1800);
   }
 
   function onClaim() {
-    if (claimDaily(address)) {
-      sfx.coin();
-      setFlash({ kind: "ok", text: "+1 💣  +1 📡" });
-      setTimeout(() => setFlash(null), 1800);
-    }
+    const res = claimDaily(address);
+    if (!res.claimed) return;
+    sfx.coin();
+    const parts: string[] = [];
+    if (res.bombAdded) parts.push("+1 💣");
+    if (res.radarAdded) parts.push("+1 📡");
+    if (res.coinsAdded > 0) parts.push(`+${res.coinsAdded} 🪙`);
+    setFlash({ kind: "ok", text: parts.join("  ") });
+    setTimeout(() => setFlash(null), 1800);
   }
 
   const claimable = canClaimDaily(state);
@@ -143,12 +151,15 @@ export function ShopBody({ compact = false }: { compact?: boolean } = {}) {
       <section className="grid gap-3 sm:grid-cols-2">
         {POWERUPS.map((p) => {
           const count = state.inventory[p.id];
+          const cap = INVENTORY_CAP[p.id];
+          const full = count >= cap;
           const affordable = coins >= p.cost;
+          const canBuy = affordable && !full;
           return (
             <div
               key={p.id}
               className={`relative overflow-hidden rounded-2xl border p-4 transition ${
-                affordable
+                canBuy
                   ? "border-sea-400/50 bg-sea-900/60 hover:border-sea-300/70"
                   : "border-sea-800/60 bg-sea-950/40"
               }`}
@@ -165,11 +176,15 @@ export function ShopBody({ compact = false }: { compact?: boolean } = {}) {
                     <h3 className="font-display text-lg text-sea-50">
                       {t(`shop.${p.id}.name`)}
                     </h3>
-                    {count > 0 && (
-                      <span className="rounded-full bg-sea-500/20 px-2 py-0.5 text-[10px] font-bold text-sea-200 ring-1 ring-sea-400/50">
-                        ×{count}
-                      </span>
-                    )}
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ${
+                        full
+                          ? "bg-coral-500/20 text-coral-200 ring-coral-400/60"
+                          : "bg-sea-500/20 text-sea-200 ring-sea-400/50"
+                      }`}
+                    >
+                      ×{count}/{cap}
+                    </span>
                   </div>
                   <p className="text-xs text-sea-300">{t(`shop.${p.id}.desc`)}</p>
                 </div>
@@ -180,12 +195,16 @@ export function ShopBody({ compact = false }: { compact?: boolean } = {}) {
                   <span className="tabular-nums">{p.cost.toLocaleString()}</span>
                 </div>
                 <Button
-                  variant={affordable ? "primary" : "ghost"}
-                  onClick={() => affordable && onBuy(p.id)}
-                  disabled={!affordable}
+                  variant={canBuy ? "primary" : "ghost"}
+                  onClick={() => canBuy && onBuy(p.id)}
+                  disabled={!canBuy}
                   data-testid={`shop-buy-${p.id}`}
                 >
-                  {affordable ? t("shop.buy") : t("shop.need", { n: p.cost - coins })}
+                  {full
+                    ? t("shop.full", { n: cap })
+                    : affordable
+                      ? t("shop.buy")
+                      : t("shop.need", { n: p.cost - coins })}
                 </Button>
               </div>
             </div>

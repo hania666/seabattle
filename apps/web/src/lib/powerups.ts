@@ -19,11 +19,23 @@ export interface PowerupDef {
 }
 
 export const POWERUPS: PowerupDef[] = [
-  { id: "bomb", cost: 20, icon: "💣" },
-  { id: "radar", cost: 15, icon: "📡" },
-  { id: "torpedo", cost: 50, icon: "🚀" },
-  { id: "shield", cost: 40, icon: "🛡" },
+  { id: "bomb", cost: 60, icon: "💣" },
+  { id: "radar", cost: 50, icon: "📡" },
+  { id: "torpedo", cost: 150, icon: "🚀" },
+  { id: "shield", cost: 120, icon: "🛡" },
 ];
+
+/**
+ * Per-powerup inventory cap. Prevents stockpiling so a free-PvE grind
+ * can't translate into a guaranteed PvP win via overwhelming firepower.
+ * Anything purchased above the cap is rejected without spending coins.
+ */
+export const INVENTORY_CAP: Record<PowerupId, number> = {
+  bomb: 5,
+  radar: 5,
+  torpedo: 5,
+  shield: 5,
+};
 
 export type Inventory = Record<PowerupId, number>;
 
@@ -77,7 +89,9 @@ function save(address: string | null | undefined, state: PowerupState): void {
 
 export type PurchaseResult =
   | { ok: true; coinsLeft: number }
-  | { ok: false; reason: "insufficient-coins" | "unknown"; need?: number; have?: number };
+  | { ok: false; reason: "insufficient-coins"; need: number; have: number }
+  | { ok: false; reason: "inventory-full"; cap: number }
+  | { ok: false; reason: "unknown" };
 
 export function purchasePowerup(
   address: string | null | undefined,
@@ -85,6 +99,13 @@ export function purchasePowerup(
 ): PurchaseResult {
   const def = POWERUPS.find((p) => p.id === id);
   if (!def) return { ok: false, reason: "unknown" };
+  // Refuse before spending coins so a full inventory doesn't cost the
+  // buyer anything.
+  const pre = loadPowerupState(address);
+  const cap = INVENTORY_CAP[id];
+  if (pre.inventory[id] >= cap) {
+    return { ok: false, reason: "inventory-full", cap };
+  }
   const spend: SpendResult = spendCoins(def.cost, address);
   if (!spend.ok) {
     return {
@@ -126,26 +147,49 @@ export function dailyClaimRemainingMs(state: PowerupState): number {
   return Math.max(0, DAILY_COOLDOWN_MS - (Date.now() - state.lastDailyClaim));
 }
 
-export function claimDaily(address: string | null | undefined): boolean {
+export interface DailyClaimResult {
+  claimed: boolean;
+  bombAdded: boolean;
+  radarAdded: boolean;
+  coinsAdded: number;
+}
+
+export function claimDaily(address: string | null | undefined): DailyClaimResult {
   const state = loadPowerupState(address);
-  if (!canClaimDaily(state)) return false;
-  state.inventory.bomb += 1;
-  state.inventory.radar += 1;
+  if (!canClaimDaily(state)) {
+    return { claimed: false, bombAdded: false, radarAdded: false, coinsAdded: 0 };
+  }
+  // Clamp to cap so a maxed-out inventory doesn't quietly exceed the limit.
+  // Coins + cooldown still tick — the daily slot was used.
+  const bombAdded = state.inventory.bomb < INVENTORY_CAP.bomb;
+  const radarAdded = state.inventory.radar < INVENTORY_CAP.radar;
+  if (bombAdded) state.inventory.bomb += 1;
+  if (radarAdded) state.inventory.radar += 1;
   state.lastDailyClaim = Date.now();
   save(address, state);
   addCoins(COINS_REWARD.dailyCrate, address);
   addProgress(address, "dailyRoutine");
-  return true;
+  return {
+    claimed: true,
+    bombAdded,
+    radarAdded,
+    coinsAdded: COINS_REWARD.dailyCrate,
+  };
 }
 
 /**
  * Award after a win — common drop (bomb/radar). Called from PvE/PvP finish
  * handlers. Kept separate from daily so both can trigger.
+ *
+ * Skips powerups already at cap so wins can't push past the limit. If every
+ * slot in the random pool is full, returns null (no drop).
  */
 export function grantWinDrop(address: string | null | undefined): PowerupId | null {
   const state = loadPowerupState(address);
   const pool: PowerupId[] = ["bomb", "radar", "bomb", "radar", "torpedo"];
-  const pick = pool[Math.floor(Math.random() * pool.length)];
+  const eligible = pool.filter((id) => state.inventory[id] < INVENTORY_CAP[id]);
+  if (eligible.length === 0) return null;
+  const pick = eligible[Math.floor(Math.random() * eligible.length)];
   state.inventory[pick] += 1;
   save(address, state);
   return pick;
