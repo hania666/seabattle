@@ -118,7 +118,8 @@ CREATE TABLE IF NOT EXISTS ip_wallet_link (
 CREATE INDEX IF NOT EXISTS ip_wallet_link_wallet_idx ON ip_wallet_link (wallet);
 CREATE INDEX IF NOT EXISTS ip_wallet_link_ip_idx     ON ip_wallet_link (ip);
 
--- helper view: wallets sharing an IP with >=2 distinct wallets in last 24h (sybil candidates)
+-- helper view: IPs touched by >=3 distinct wallets in last 24h (sybil candidates).
+-- Threshold is 3 (not 2) so a couple sharing a router doesn't trip the alert.
 CREATE OR REPLACE VIEW v_sybil_candidates AS
 SELECT ip, COUNT(DISTINCT wallet) AS wallet_count, ARRAY_AGG(wallet) AS wallets
 FROM ip_wallet_link
