@@ -21,7 +21,6 @@ import {
 } from "../../lib/rankDecay";
 import { useT } from "../../lib/i18n";
 import { AchievementGrid } from "./AchievementGrid";
-import { ShopBody } from "../shop/ShopScreen";
 
 interface Props {
   onExit: () => void;
@@ -182,8 +181,6 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
       </section>
 
       <AchievementGrid address={address} />
-
-      <ShopBody compact />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <ModeCard

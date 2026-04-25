@@ -27,7 +27,10 @@ const LeaderboardScreen = lazy(() =>
     default: m.LeaderboardScreen,
   })),
 );
-type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard";
+const ShopScreen = lazy(() =>
+  import("./features/shop/ShopScreen").then((m) => ({ default: m.ShopScreen })),
+);
+type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard" | "shop";
 
 export default function App() {
   const t = useT();
@@ -69,6 +72,21 @@ export default function App() {
           <div className="flex items-center gap-2">
             <Hud />
             <LanguageSwitcher />
+            <button
+              type="button"
+              onClick={() => goto("shop")}
+              aria-label={t("nav.shop")}
+              title={t("nav.shop")}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold ring-1 transition ${
+                screen === "shop"
+                  ? "bg-gold-400 text-sea-950 ring-gold-300 shadow-glow-gold"
+                  : "bg-gold-500/15 text-gold-200 ring-gold-400/50 hover:bg-gold-500/25 hover:text-gold-100"
+              }`}
+              data-testid="nav-shop"
+            >
+              <ShopBagIcon />
+              <span className="hidden sm:inline">{t("nav.shop")}</span>
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -137,6 +155,7 @@ export default function App() {
             {screen === "leaderboard" && (
               <LeaderboardScreen onExit={() => goto("home")} />
             )}
+            {screen === "shop" && <ShopScreen onExit={() => goto("home")} />}
           </Suspense>
         </main>
 
@@ -187,6 +206,25 @@ function LogoMark() {
       <rect x="30" y="22" width="4" height="12" fill="#e0f2fe" />
       <path d="M32 22 L32 14 L41 18 L32 22" fill="#f59e0b" stroke="#b45309" strokeWidth="0.8" />
       <circle cx="32" cy="28" r="1.6" fill="#fbbf24" />
+    </svg>
+  );
+}
+
+function ShopBagIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 20 20" className="h-5 w-5" fill="none">
+      <path
+        d="M5 7h10l-1 9.5a1 1 0 01-1 .9H7a1 1 0 01-1-.9L5 7z"
+        fill="currentColor"
+        opacity="0.25"
+      />
+      <path
+        d="M5 7h10l-1 9.5a1 1 0 01-1 .9H7a1 1 0 01-1-.9L5 7zm2 0V5a3 3 0 016 0v2"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
