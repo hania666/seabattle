@@ -150,8 +150,10 @@ export function dailyClaimRemainingMs(state: PowerupState): number {
 export function claimDaily(address: string | null | undefined): boolean {
   const state = loadPowerupState(address);
   if (!canClaimDaily(state)) return false;
-  state.inventory.bomb += 1;
-  state.inventory.radar += 1;
+  // Clamp to cap so a maxed-out inventory doesn't quietly exceed the limit.
+  // Coins + cooldown still tick — the daily slot was used.
+  if (state.inventory.bomb < INVENTORY_CAP.bomb) state.inventory.bomb += 1;
+  if (state.inventory.radar < INVENTORY_CAP.radar) state.inventory.radar += 1;
   state.lastDailyClaim = Date.now();
   save(address, state);
   addCoins(COINS_REWARD.dailyCrate, address);
@@ -162,11 +164,16 @@ export function claimDaily(address: string | null | undefined): boolean {
 /**
  * Award after a win — common drop (bomb/radar). Called from PvE/PvP finish
  * handlers. Kept separate from daily so both can trigger.
+ *
+ * Skips powerups already at cap so wins can't push past the limit. If every
+ * slot in the random pool is full, returns null (no drop).
  */
 export function grantWinDrop(address: string | null | undefined): PowerupId | null {
   const state = loadPowerupState(address);
   const pool: PowerupId[] = ["bomb", "radar", "bomb", "radar", "torpedo"];
-  const pick = pool[Math.floor(Math.random() * pool.length)];
+  const eligible = pool.filter((id) => state.inventory[id] < INVENTORY_CAP[id]);
+  if (eligible.length === 0) return null;
+  const pick = eligible[Math.floor(Math.random() * eligible.length)];
   state.inventory[pick] += 1;
   save(address, state);
   return pick;
