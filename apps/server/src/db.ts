@@ -180,8 +180,8 @@ export async function recordAudit(entry: {
   userAgent?: string | null;
   severity?: "info" | "warn" | "cheat" | "ban";
 }): Promise<void> {
-  const wallet = entry.wallet ? normaliseWallet(entry.wallet) : null;
   try {
+    const wallet = entry.wallet ? normaliseWallet(entry.wallet) : null;
     await query(
       `INSERT INTO audit_log (wallet, action, payload, ip, user_agent, severity)
        VALUES ($1, $2, $3, $4, $5, $6)`,
