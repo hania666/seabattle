@@ -10,8 +10,11 @@ import { AchievementToastBridge } from "./features/profile/AchievementToastBridg
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Home } from "./features/home/Home";
 import { sfx } from "./lib/audio";
-import { useT } from "./lib/i18n";
+import { useT, useLang } from "./lib/i18n";
 import { runBootstrap } from "./lib/bootstrap";
+import { LegalProvider } from "./features/legal/LegalProvider";
+import { LegalModal } from "./features/legal/LegalModal";
+import { TERMS, PRIVACY } from "./features/legal/content";
 
 const PveScreen = lazy(() =>
   import("./features/pve/PveScreen").then((m) => ({ default: m.PveScreen })),
@@ -34,13 +37,23 @@ const ShopScreen = lazy(() =>
 type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard" | "shop";
 
 export default function App() {
+  return (
+    <LegalProvider>
+      <AppInner />
+    </LegalProvider>
+  );
+}
+
+function AppInner() {
   const t = useT();
+  const lang = useLang();
   const { login } = useLoginWithAbstract();
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const [screen, setScreen] = useState<Screen>("home");
   const [showSplash, setShowSplash] = useState(() => !splashSeen());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [legalViewer, setLegalViewer] = useState<"tos" | "privacy" | null>(null);
 
   // Bootstrap: run coin migration + pending inactivity decay once per
   // address. Idempotent — migrateCoins stores a flag; decay shifts the last
@@ -59,6 +72,17 @@ export default function App() {
       {showSplash && <Splash onFinish={() => setShowSplash(false)} />}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <AchievementToastBridge />
+      <LegalModal
+        open={legalViewer !== null}
+        doc={
+          legalViewer === "tos"
+            ? TERMS[lang]
+            : legalViewer === "privacy"
+              ? PRIVACY[lang]
+              : null
+        }
+        onClose={() => setLegalViewer(null)}
+      />
       <div className="flex min-h-screen flex-col">
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-sea-800/60 bg-sea-950/70 px-4 py-3 backdrop-blur sm:px-6">
           <button
@@ -146,16 +170,49 @@ export default function App() {
           </Suspense>
         </main>
 
-        <footer className="border-t border-sea-800/60 bg-sea-950/30 px-6 py-4 text-center text-xs text-sea-200/60">
-          Built on Abstract · MIT licensed ·{" "}
-          <a
-            className="underline hover:text-sea-100"
-            href="https://github.com/hania666/seabattle"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub
-          </a>
+        <footer className="border-t border-sea-800/60 bg-sea-950/30 px-6 py-5 text-xs text-sea-200/70">
+          <div className="mx-auto flex max-w-5xl flex-col items-center gap-3 sm:flex-row sm:justify-between">
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
+              <button
+                type="button"
+                onClick={() => setLegalViewer("tos")}
+                className="underline underline-offset-2 hover:text-sea-100"
+                data-testid="footer-terms"
+              >
+                {t("footer.terms")}
+              </button>
+              <span className="text-sea-700">·</span>
+              <button
+                type="button"
+                onClick={() => setLegalViewer("privacy")}
+                className="underline underline-offset-2 hover:text-sea-100"
+                data-testid="footer-privacy"
+              >
+                {t("footer.privacy")}
+              </button>
+              <span className="text-sea-700">·</span>
+              <a
+                className="underline underline-offset-2 hover:text-sea-100"
+                href="https://www.begambleaware.org"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("footer.responsible")}
+              </a>
+              <span className="text-sea-700">·</span>
+              <a
+                className="underline underline-offset-2 hover:text-sea-100"
+                href="https://github.com/hania666/seabattle"
+                target="_blank"
+                rel="noreferrer"
+              >
+                GitHub
+              </a>
+            </div>
+            <p className="text-center text-[11px] text-sea-400 sm:text-right">
+              {t("footer.tagline")}
+            </p>
+          </div>
         </footer>
       </div>
     </>
