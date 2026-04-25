@@ -159,9 +159,12 @@ server.listen(env.port, () => {
   console.log(`[sea3battle-server] db: ${isDbConfigured() ? "configured" : "disabled"}`);
 });
 
+let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`[sea3battle-server] received ${signal}, shutting down`);
-  server.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
   await closePool();
   process.exit(0);
 }
