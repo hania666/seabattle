@@ -1,4 +1,7 @@
 import "dotenv/config";
+import { initSentry, Sentry, captureException } from "./sentry";
+initSentry();
+
 import http from "node:http";
 import path from "node:path";
 import cors from "cors";
@@ -122,12 +125,21 @@ app.post("/api/leaderboard/submit", async (req, res) => {
   }
 });
 
+Sentry.setupExpressErrorHandler(app);
+
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: { origin: env.corsOrigin },
 });
 
 registerSocketHandlers(io, env);
+
+process.on("unhandledRejection", (reason) => {
+  captureException(reason, { source: "unhandledRejection" });
+});
+process.on("uncaughtException", (err) => {
+  captureException(err, { source: "uncaughtException" });
+});
 
 server.listen(env.port, () => {
   console.log(`[sea3battle-server] listening on :${env.port}`);
