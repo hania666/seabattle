@@ -6,6 +6,7 @@ import { Splash } from "./features/splash/Splash";
 import { splashSeen } from "./features/splash/splashState";
 import { Hud } from "./components/Hud";
 import { SettingsModal } from "./components/SettingsModal";
+import { AchievementToastBridge } from "./features/profile/AchievementToastBridge";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Home } from "./features/home/Home";
 import { sfx } from "./lib/audio";
@@ -57,6 +58,7 @@ export default function App() {
     <>
       {showSplash && <Splash onFinish={() => setShowSplash(false)} />}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AchievementToastBridge />
       <div className="flex min-h-screen flex-col">
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-sea-800/60 bg-sea-950/70 px-4 py-3 backdrop-blur sm:px-6">
           <button

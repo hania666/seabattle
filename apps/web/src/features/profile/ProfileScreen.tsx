@@ -20,6 +20,7 @@ import {
   lossStreakPenalty,
 } from "../../lib/rankDecay";
 import { useT } from "../../lib/i18n";
+import { AchievementGrid } from "./AchievementGrid";
 
 interface Props {
   onExit: () => void;
@@ -178,6 +179,8 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
           })}
         </div>
       </section>
+
+      <AchievementGrid address={address} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <ModeCard

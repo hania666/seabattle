@@ -8,6 +8,7 @@
  */
 
 import { COINS_REWARD, addCoins, spendCoins, type SpendResult } from "./coins";
+import { addProgress, recordPurchase } from "./achievements";
 
 export type PowerupId = "bomb" | "radar" | "torpedo" | "shield";
 
@@ -96,6 +97,7 @@ export function purchasePowerup(
   const state = loadPowerupState(address);
   state.inventory[id] += 1;
   save(address, state);
+  recordPurchase(address, id);
   return { ok: true, coinsLeft: spend.balance };
 }
 
@@ -107,6 +109,9 @@ export function consumePowerup(
   if (state.inventory[id] <= 0) return false;
   state.inventory[id] -= 1;
   save(address, state);
+  if (id === "bomb") addProgress(address, "bombMaster");
+  else if (id === "torpedo") addProgress(address, "torpedoMaster");
+  else if (id === "shield") addProgress(address, "shieldBearer");
   return true;
 }
 
@@ -129,6 +134,7 @@ export function claimDaily(address: string | null | undefined): boolean {
   state.lastDailyClaim = Date.now();
   save(address, state);
   addCoins(COINS_REWARD.dailyCrate, address);
+  addProgress(address, "dailyRoutine");
   return true;
 }
 
