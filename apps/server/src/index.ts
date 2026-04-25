@@ -11,6 +11,7 @@ import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { signResult } from "./signer";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
+import { closePool, isDbConfigured, pingDb } from "./db";
 
 const leaderboardPath =
   process.env.LEADERBOARD_PATH ?? path.resolve(process.cwd(), "data/leaderboard.json");
@@ -31,7 +32,16 @@ app.get("/health", (_req, res) => {
     chainId: env.chainId,
     lobbyAddress: env.lobbyAddress,
     botMatchAddress: env.botMatchAddress,
+    db: isDbConfigured() ? "configured" : "disabled",
   });
+});
+
+app.get("/healthz/db", async (_req, res) => {
+  if (!isDbConfigured()) {
+    return res.status(503).json({ ok: false, error: "DATABASE_URL not set" });
+  }
+  const status = await pingDb();
+  return res.status(status.ok ? 200 : 503).json(status);
 });
 
 /**
@@ -146,4 +156,14 @@ process.on("uncaughtException", (err) => {
 server.listen(env.port, () => {
   console.log(`[sea3battle-server] listening on :${env.port}`);
   console.log(`[sea3battle-server] signer: ${env.signer.address}`);
+  console.log(`[sea3battle-server] db: ${isDbConfigured() ? "configured" : "disabled"}`);
 });
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  console.log(`[sea3battle-server] received ${signal}, shutting down`);
+  server.close();
+  await closePool();
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
