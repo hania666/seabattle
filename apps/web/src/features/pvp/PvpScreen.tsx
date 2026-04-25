@@ -14,6 +14,7 @@ import { PvpResultScreen } from "./PvpResultScreen";
 import { BackLink, Button, StatusCard, TxLink, useToast } from "../../components/ui";
 import { errMessage, shortAddress, shortHash } from "../../lib/format";
 import { loadStats, recordMatch, saveStats } from "../../lib/stats";
+import { addProgress, markIf } from "../../lib/achievements";
 import {
   applyXpDelta,
   currentLossStreak,
@@ -119,11 +120,22 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
         const stake = currentStakeRef.current;
         if (own) {
           const won = msg.winner.toLowerCase() === own.toLowerCase();
+          const prev = loadStats(own);
+          const priorTotalWins = prev.pveWins + prev.pvpWins;
           const next = recordMatch(own, {
             mode: "pvp",
             won,
             stakeEth: stake?.eth,
           });
+          addProgress(own, "hundredMatches");
+          addProgress(own, "fiveHundredMatches");
+          if (won) {
+            markIf(own, "firstWin", priorTotalWins === 0);
+            markIf(own, "rankMatros", next.xp >= 100);
+            markIf(own, "rankMichman", next.xp >= 1500);
+            markIf(own, "rankLieutenant", next.xp >= 3000);
+            markIf(own, "rankAdmiral", next.xp >= 20000);
+          }
           if (!won) {
             const streak = currentLossStreak(next);
             if (streak >= STREAK_THRESHOLD) {
