@@ -184,7 +184,7 @@ export async function recordAudit(entry: {
       [
         wallet,
         entry.action,
-        entry.payload ? JSON.stringify(entry.payload) : null,
+        entry.payload != null ? JSON.stringify(entry.payload) : null,
         entry.ip ?? null,
         entry.userAgent ?? null,
         entry.severity ?? "info",
