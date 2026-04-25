@@ -139,6 +139,7 @@ process.on("unhandledRejection", (reason) => {
 });
 process.on("uncaughtException", (err) => {
   captureException(err, { source: "uncaughtException" });
+  void Sentry.flush(2000).finally(() => process.exit(1));
 });
 
 server.listen(env.port, () => {
