@@ -136,6 +136,7 @@ registerSocketHandlers(io, env);
 
 process.on("unhandledRejection", (reason) => {
   captureException(reason, { source: "unhandledRejection" });
+  void Sentry.flush(2000).finally(() => process.exit(1));
 });
 process.on("uncaughtException", (err) => {
   captureException(err, { source: "uncaughtException" });
