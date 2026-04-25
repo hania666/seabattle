@@ -1,29 +1,41 @@
 /**
- * Power-ups (bombs / radars / torpedoes / shields) — local-only economy.
- * Balance + inventory live in localStorage keyed by wallet address (or
- * "guest"), same pattern as `stats.ts`. XP is spent against the stats XP
- * counter so the two systems stay consistent.
+ * Power-ups (bombs / radars / torpedoes / shields) — local-only inventory.
+ * Balance of coins lives in `./coins`; inventory and daily-claim marker
+ * live here. Both are keyed by wallet address (or "guest").
  *
  * Phase 7 migration: when we deploy a PowerUps ERC-1155 contract, these
  * balances become an off-chain cache in front of `balanceOf(account, id)`.
  */
 
-import { loadStats, saveStats } from "./stats";
+import { COINS_REWARD, addCoins, spendCoins, type SpendResult } from "./coins";
+import { addProgress, recordPurchase } from "./achievements";
 
 export type PowerupId = "bomb" | "radar" | "torpedo" | "shield";
 
 export interface PowerupDef {
   id: PowerupId;
-  cost: number;
+  cost: number; // coins
   icon: string;
 }
 
 export const POWERUPS: PowerupDef[] = [
-  { id: "bomb", cost: 200, icon: "💣" },
-  { id: "radar", cost: 150, icon: "📡" },
-  { id: "torpedo", cost: 500, icon: "🚀" },
-  { id: "shield", cost: 400, icon: "🛡" },
+  { id: "bomb", cost: 60, icon: "💣" },
+  { id: "radar", cost: 50, icon: "📡" },
+  { id: "torpedo", cost: 150, icon: "🚀" },
+  { id: "shield", cost: 120, icon: "🛡" },
 ];
+
+/**
+ * Per-powerup inventory cap. Prevents stockpiling so a free-PvE grind
+ * can't translate into a guaranteed PvP win via overwhelming firepower.
+ * Anything purchased above the cap is rejected without spending coins.
+ */
+export const INVENTORY_CAP: Record<PowerupId, number> = {
+  bomb: 5,
+  radar: 5,
+  torpedo: 5,
+  shield: 5,
+};
 
 export type Inventory = Record<PowerupId, number>;
 
@@ -75,19 +87,39 @@ function save(address: string | null | undefined, state: PowerupState): void {
   }
 }
 
+export type PurchaseResult =
+  | { ok: true; coinsLeft: number }
+  | { ok: false; reason: "insufficient-coins"; need: number; have: number }
+  | { ok: false; reason: "inventory-full"; cap: number }
+  | { ok: false; reason: "unknown" };
+
 export function purchasePowerup(
   address: string | null | undefined,
   id: PowerupId,
-): { ok: true; xpLeft: number } | { ok: false; reason: "insufficient-xp" | "unknown" } {
+): PurchaseResult {
   const def = POWERUPS.find((p) => p.id === id);
   if (!def) return { ok: false, reason: "unknown" };
-  const stats = loadStats(address);
-  if (stats.xp < def.cost) return { ok: false, reason: "insufficient-xp" };
+  // Refuse before spending coins so a full inventory doesn't cost the
+  // buyer anything.
+  const pre = loadPowerupState(address);
+  const cap = INVENTORY_CAP[id];
+  if (pre.inventory[id] >= cap) {
+    return { ok: false, reason: "inventory-full", cap };
+  }
+  const spend: SpendResult = spendCoins(def.cost, address);
+  if (!spend.ok) {
+    return {
+      ok: false,
+      reason: "insufficient-coins",
+      need: def.cost,
+      have: spend.balance,
+    };
+  }
   const state = loadPowerupState(address);
   state.inventory[id] += 1;
   save(address, state);
-  saveStats({ ...stats, xp: stats.xp - def.cost }, address);
-  return { ok: true, xpLeft: stats.xp - def.cost };
+  recordPurchase(address, id);
+  return { ok: true, coinsLeft: spend.balance };
 }
 
 export function consumePowerup(
@@ -98,6 +130,9 @@ export function consumePowerup(
   if (state.inventory[id] <= 0) return false;
   state.inventory[id] -= 1;
   save(address, state);
+  if (id === "bomb") addProgress(address, "bombMaster");
+  else if (id === "torpedo") addProgress(address, "torpedoMaster");
+  else if (id === "shield") addProgress(address, "shieldBearer");
   return true;
 }
 
@@ -112,24 +147,49 @@ export function dailyClaimRemainingMs(state: PowerupState): number {
   return Math.max(0, DAILY_COOLDOWN_MS - (Date.now() - state.lastDailyClaim));
 }
 
-export function claimDaily(address: string | null | undefined): boolean {
+export interface DailyClaimResult {
+  claimed: boolean;
+  bombAdded: boolean;
+  radarAdded: boolean;
+  coinsAdded: number;
+}
+
+export function claimDaily(address: string | null | undefined): DailyClaimResult {
   const state = loadPowerupState(address);
-  if (!canClaimDaily(state)) return false;
-  state.inventory.bomb += 1;
-  state.inventory.radar += 1;
+  if (!canClaimDaily(state)) {
+    return { claimed: false, bombAdded: false, radarAdded: false, coinsAdded: 0 };
+  }
+  // Clamp to cap so a maxed-out inventory doesn't quietly exceed the limit.
+  // Coins + cooldown still tick — the daily slot was used.
+  const bombAdded = state.inventory.bomb < INVENTORY_CAP.bomb;
+  const radarAdded = state.inventory.radar < INVENTORY_CAP.radar;
+  if (bombAdded) state.inventory.bomb += 1;
+  if (radarAdded) state.inventory.radar += 1;
   state.lastDailyClaim = Date.now();
   save(address, state);
-  return true;
+  addCoins(COINS_REWARD.dailyCrate, address);
+  addProgress(address, "dailyRoutine");
+  return {
+    claimed: true,
+    bombAdded,
+    radarAdded,
+    coinsAdded: COINS_REWARD.dailyCrate,
+  };
 }
 
 /**
  * Award after a win — common drop (bomb/radar). Called from PvE/PvP finish
  * handlers. Kept separate from daily so both can trigger.
+ *
+ * Skips powerups already at cap so wins can't push past the limit. If every
+ * slot in the random pool is full, returns null (no drop).
  */
 export function grantWinDrop(address: string | null | undefined): PowerupId | null {
   const state = loadPowerupState(address);
   const pool: PowerupId[] = ["bomb", "radar", "bomb", "radar", "torpedo"];
-  const pick = pool[Math.floor(Math.random() * pool.length)];
+  const eligible = pool.filter((id) => state.inventory[id] < INVENTORY_CAP[id]);
+  if (eligible.length === 0) return null;
+  const pick = eligible[Math.floor(Math.random() * eligible.length)];
   state.inventory[pick] += 1;
   save(address, state);
   return pick;

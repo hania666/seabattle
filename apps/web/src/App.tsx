@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { useAccount, useDisconnect } from "wagmi";
 import { shortAddress } from "./lib/format";
@@ -6,10 +6,13 @@ import { Splash } from "./features/splash/Splash";
 import { splashSeen } from "./features/splash/splashState";
 import { Hud } from "./components/Hud";
 import { SettingsModal } from "./components/SettingsModal";
+import { AchievementToastBridge } from "./features/profile/AchievementToastBridge";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Home } from "./features/home/Home";
 import { sfx } from "./lib/audio";
 import { useT, useLang } from "./lib/i18n";
+import { runBootstrap } from "./lib/bootstrap";
+import { setSentryWallet } from "./lib/sentry";
 import { LegalProvider } from "./features/legal/LegalProvider";
 import { LegalModal } from "./features/legal/LegalModal";
 import { TERMS, PRIVACY } from "./features/legal/content";
@@ -31,7 +34,6 @@ const LeaderboardScreen = lazy(() =>
 const ShopScreen = lazy(() =>
   import("./features/shop/ShopScreen").then((m) => ({ default: m.ShopScreen })),
 );
-
 type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard" | "shop";
 
 export default function App() {
@@ -53,6 +55,14 @@ function AppInner() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [legalViewer, setLegalViewer] = useState<"tos" | "privacy" | null>(null);
 
+  // Bootstrap: run coin migration + pending inactivity decay once per
+  // address. Idempotent — migrateCoins stores a flag; decay shifts the last
+  // match timestamp forward so we never double-charge.
+  useEffect(() => {
+    runBootstrap(address);
+    setSentryWallet(address ?? null);
+  }, [address]);
+
   function goto(next: Screen) {
     sfx.click();
     setScreen(next);
@@ -62,6 +72,7 @@ function AppInner() {
     <>
       {showSplash && <Splash onFinish={() => setShowSplash(false)} />}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AchievementToastBridge />
       <LegalModal
         open={legalViewer !== null}
         doc={
@@ -87,6 +98,21 @@ function AppInner() {
           <div className="flex items-center gap-2">
             <Hud />
             <LanguageSwitcher />
+            <button
+              type="button"
+              onClick={() => goto("shop")}
+              aria-label={t("nav.shop")}
+              title={t("nav.shop")}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold ring-1 transition ${
+                screen === "shop"
+                  ? "bg-gold-400 text-sea-950 ring-gold-300 shadow-glow-gold"
+                  : "bg-gold-500/15 text-gold-200 ring-gold-400/50 hover:bg-gold-500/25 hover:text-gold-100"
+              }`}
+              data-testid="nav-shop"
+            >
+              <ShopBagIcon />
+              <span className="hidden sm:inline">{t("nav.shop")}</span>
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -141,7 +167,6 @@ function AppInner() {
                 onPvP={() => goto("pvp")}
                 onProfile={() => goto("profile")}
                 onLeaderboard={() => goto("leaderboard")}
-                onShop={() => goto("shop")}
               />
             )}
             {screen === "pve" && <PveScreen onExit={() => goto("home")} />}
@@ -240,6 +265,25 @@ function LogoMark() {
       <rect x="30" y="22" width="4" height="12" fill="#e0f2fe" />
       <path d="M32 22 L32 14 L41 18 L32 22" fill="#f59e0b" stroke="#b45309" strokeWidth="0.8" />
       <circle cx="32" cy="28" r="1.6" fill="#fbbf24" />
+    </svg>
+  );
+}
+
+function ShopBagIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 20 20" className="h-5 w-5" fill="none">
+      <path
+        d="M5 7h10l-1 9.5a1 1 0 01-1 .9H7a1 1 0 01-1-.9L5 7z"
+        fill="currentColor"
+        opacity="0.25"
+      />
+      <path
+        d="M5 7h10l-1 9.5a1 1 0 01-1 .9H7a1 1 0 01-1-.9L5 7zm2 0V5a3 3 0 016 0v2"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

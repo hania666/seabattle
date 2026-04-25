@@ -10,6 +10,17 @@ import {
   loadStats,
   type PlayerStats,
 } from "../../lib/stats";
+import { useCoins } from "../../lib/coins";
+import {
+  DECAY_PER_WEEK,
+  INACTIVITY_GRACE_MS,
+  STREAK_THRESHOLD,
+  currentLossStreak,
+  daysUntilDecay,
+  lossStreakPenalty,
+} from "../../lib/rankDecay";
+import { useT } from "../../lib/i18n";
+import { AchievementGrid } from "./AchievementGrid";
 
 interface Props {
   onExit: () => void;
@@ -18,12 +29,19 @@ interface Props {
 }
 
 export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
+  const t = useT();
   const { address, isConnected } = useAccount();
   const { login } = useLoginWithAbstract();
   const [stats, setStats] = useState<PlayerStats>(() => loadStats(address));
+  const coins = useCoins(address);
 
   useEffect(() => {
     setStats(loadStats(address));
+    function refresh() {
+      setStats(loadStats(address));
+    }
+    window.addEventListener("stats:updated", refresh);
+    return () => window.removeEventListener("stats:updated", refresh);
   }, [address]);
 
   const totalWins = stats.pveWins + stats.pvpWins;
@@ -32,6 +50,11 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
   const winRate = totalMatches === 0 ? 0 : Math.round((totalWins / totalMatches) * 100);
   const progress = rankForXp(stats.xp);
   const rankTone = TONE_CLASSES[progress.rank.tone];
+
+  const lossStreak = currentLossStreak(stats);
+  const days = daysUntilDecay(stats);
+  const graceDays = INACTIVITY_GRACE_MS / (24 * 60 * 60 * 1000);
+  const nextPenalty = lossStreakPenalty(stats.xp);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 py-4">
@@ -95,11 +118,35 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-4">
-        <StatTile label="XP" value={stats.xp} accent="gold" />
+        <StatTile label="XP" value={stats.xp} accent="sea" />
+        <StatTile label={t("coins.label")} value={coins} accent="gold" />
         <StatTile label="Wins" value={totalWins} accent="sea" />
         <StatTile label="Losses" value={totalLosses} accent="coral" />
-        <StatTile label="Matches" value={totalMatches} />
       </div>
+
+      {(lossStreak >= STREAK_THRESHOLD - 1 || (days !== null && days < 7)) && (
+        <section
+          className="space-y-2 rounded-2xl border border-amber-600/30 bg-amber-900/20 p-4 text-xs text-amber-200"
+          data-testid="decay-panel"
+        >
+          {lossStreak >= STREAK_THRESHOLD - 1 && (
+            <p>
+              {t("rank.decay.losing.streak", {
+                n: lossStreak,
+                penalty: nextPenalty,
+              })}
+            </p>
+          )}
+          {days !== null && days < 7 && (
+            <p>
+              {t("rank.decay.inactivity", {
+                days: graceDays,
+                per: DECAY_PER_WEEK,
+              })}
+            </p>
+          )}
+        </section>
+      )}
 
       <section>
         <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.25em] text-sea-400">
@@ -132,6 +179,8 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
           })}
         </div>
       </section>
+
+      <AchievementGrid address={address} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <ModeCard

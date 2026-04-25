@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { BackLink, Button, Card } from "../../components/ui";
 import { useT } from "../../lib/i18n";
-import { loadStats } from "../../lib/stats";
+import { useCoins } from "../../lib/coins";
 import {
   canClaimDaily,
   claimDaily,
   dailyClaimRemainingMs,
   loadPowerupState,
   POWERUPS,
+  INVENTORY_CAP,
   purchasePowerup,
   type PowerupId,
   type PowerupState,
@@ -21,22 +22,31 @@ interface Props {
 
 export function ShopScreen({ onExit }: Props) {
   const t = useT();
+  return (
+    <div className="mx-auto max-w-4xl space-y-5 py-4">
+      <ShopBody />
+      <div className="pt-2">
+        <BackLink onClick={onExit} label={t("common.home")} />
+      </div>
+    </div>
+  );
+}
+
+export function ShopBody({ compact = false }: { compact?: boolean } = {}) {
+  const t = useT();
   const { address } = useAccount();
   const [state, setState] = useState<PowerupState>(() => loadPowerupState(address));
-  const [xp, setXp] = useState(() => loadStats(address).xp);
+  const coins = useCoins(address);
   const [flash, setFlash] = useState<null | { kind: "ok" | "err"; text: string }>(null);
 
   useEffect(() => {
     function refresh() {
       setState(loadPowerupState(address));
-      setXp(loadStats(address).xp);
     }
     refresh();
     window.addEventListener("powerups:updated", refresh);
-    window.addEventListener("stats:updated", refresh);
     return () => {
       window.removeEventListener("powerups:updated", refresh);
-      window.removeEventListener("stats:updated", refresh);
     };
   }, [address]);
 
@@ -45,18 +55,30 @@ export function ShopScreen({ onExit }: Props) {
     if (res.ok) {
       sfx.coin();
       setFlash({ kind: "ok", text: `+1 ${t(`shop.${id}.name`)}` });
-    } else {
-      setFlash({ kind: "err", text: t(`shop.need`, { n: 0 }) });
+    } else if (res.reason === "insufficient-coins") {
+      setFlash({
+        kind: "err",
+        text: t("shop.need", { n: res.need - res.have }),
+      });
+    } else if (res.reason === "inventory-full") {
+      setFlash({
+        kind: "err",
+        text: t("shop.full", { n: res.cap }),
+      });
     }
     setTimeout(() => setFlash(null), 1800);
   }
 
   function onClaim() {
-    if (claimDaily(address)) {
-      sfx.coin();
-      setFlash({ kind: "ok", text: "+1 💣  +1 📡" });
-      setTimeout(() => setFlash(null), 1800);
-    }
+    const res = claimDaily(address);
+    if (!res.claimed) return;
+    sfx.coin();
+    const parts: string[] = [];
+    if (res.bombAdded) parts.push("+1 💣");
+    if (res.radarAdded) parts.push("+1 📡");
+    if (res.coinsAdded > 0) parts.push(`+${res.coinsAdded} 🪙`);
+    setFlash({ kind: "ok", text: parts.join("  ") });
+    setTimeout(() => setFlash(null), 1800);
   }
 
   const claimable = canClaimDaily(state);
@@ -65,7 +87,7 @@ export function ShopScreen({ onExit }: Props) {
   const minutes = Math.floor((remaining % 3_600_000) / 60_000);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 py-4">
+    <div className={compact ? "space-y-4" : "space-y-5"}>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sea-400">
@@ -77,8 +99,11 @@ export function ShopScreen({ onExit }: Props) {
         </div>
         <div className="flex items-center gap-3 rounded-full bg-sea-900/70 px-4 py-2 ring-1 ring-gold-400/40">
           <CoinIcon />
-          <span className="font-display text-xl font-bold text-gold-300 tabular-nums">
-            {xp.toLocaleString()}
+          <span
+            className="font-display text-xl font-bold text-gold-300 tabular-nums"
+            data-testid="shop-coins"
+          >
+            {coins.toLocaleString()}
           </span>
           <span className="text-[11px] uppercase tracking-wider text-sea-300">
             {t("shop.balance")}
@@ -126,12 +151,15 @@ export function ShopScreen({ onExit }: Props) {
       <section className="grid gap-3 sm:grid-cols-2">
         {POWERUPS.map((p) => {
           const count = state.inventory[p.id];
-          const affordable = xp >= p.cost;
+          const cap = INVENTORY_CAP[p.id];
+          const full = count >= cap;
+          const affordable = coins >= p.cost;
+          const canBuy = affordable && !full;
           return (
             <div
               key={p.id}
               className={`relative overflow-hidden rounded-2xl border p-4 transition ${
-                affordable
+                canBuy
                   ? "border-sea-400/50 bg-sea-900/60 hover:border-sea-300/70"
                   : "border-sea-800/60 bg-sea-950/40"
               }`}
@@ -148,11 +176,15 @@ export function ShopScreen({ onExit }: Props) {
                     <h3 className="font-display text-lg text-sea-50">
                       {t(`shop.${p.id}.name`)}
                     </h3>
-                    {count > 0 && (
-                      <span className="rounded-full bg-sea-500/20 px-2 py-0.5 text-[10px] font-bold text-sea-200 ring-1 ring-sea-400/50">
-                        ×{count}
-                      </span>
-                    )}
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ${
+                        full
+                          ? "bg-coral-500/20 text-coral-200 ring-coral-400/60"
+                          : "bg-sea-500/20 text-sea-200 ring-sea-400/50"
+                      }`}
+                    >
+                      ×{count}/{cap}
+                    </span>
                   </div>
                   <p className="text-xs text-sea-300">{t(`shop.${p.id}.desc`)}</p>
                 </div>
@@ -163,22 +195,22 @@ export function ShopScreen({ onExit }: Props) {
                   <span className="tabular-nums">{p.cost.toLocaleString()}</span>
                 </div>
                 <Button
-                  variant={affordable ? "primary" : "ghost"}
-                  onClick={() => affordable && onBuy(p.id)}
-                  disabled={!affordable}
+                  variant={canBuy ? "primary" : "ghost"}
+                  onClick={() => canBuy && onBuy(p.id)}
+                  disabled={!canBuy}
                   data-testid={`shop-buy-${p.id}`}
                 >
-                  {affordable ? t("shop.buy") : t("shop.need", { n: p.cost - xp })}
+                  {full
+                    ? t("shop.full", { n: cap })
+                    : affordable
+                      ? t("shop.buy")
+                      : t("shop.need", { n: p.cost - coins })}
                 </Button>
               </div>
             </div>
           );
         })}
       </section>
-
-      <div className="pt-2">
-        <BackLink onClick={onExit} label={t("common.home")} />
-      </div>
     </div>
   );
 }

@@ -7,7 +7,10 @@ import { abstractTestnet } from "viem/chains";
 import App from "./App";
 import { wagmiConfig } from "./lib/wagmi";
 import { ToastProvider } from "./components/ui";
+import { initSentry } from "./lib/sentry";
 import "./index.css";
+
+initSentry();
 
 const queryClient = new QueryClient();
 

@@ -12,14 +12,24 @@ import {
   loadPowerupState,
   type PowerupState,
 } from "../../lib/powerups";
+import { markIf } from "../../lib/achievements";
 import { FleetRoster } from "../../components/FleetRoster";
-import { BoardGrid } from "./BoardGrid";
+import { BoardGrid, type CellFx } from "./BoardGrid";
 import { TurnTimer } from "./TurnTimer";
+import { BombArc } from "../art/BombArc";
+
+export interface PveFinishStats {
+  playerShots: number;
+  botShots: number;
+  powerupsUsed: boolean;
+  durationMs: number;
+  firstSunkEmitted: boolean;
+}
 
 interface Props {
   difficulty: Difficulty;
   playerBoard: Board;
-  onFinished: (won: boolean, stats: { playerShots: number; botShots: number }) => void;
+  onFinished: (won: boolean, stats: PveFinishStats) => void;
 }
 
 type Turn = "player" | "bot";
@@ -31,6 +41,8 @@ interface LogEntry {
   auto?: boolean;
   powerup?: "bomb" | "radar";
 }
+
+const FX_LIFETIME_MS = 900;
 
 type AimMode = "shot" | "bomb" | "radar";
 
@@ -48,9 +60,42 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
   const [botShots, setBotShots] = useState(0);
   const [aim, setAim] = useState<AimMode>("shot");
   const [powerups, setPowerups] = useState<PowerupState>(() => loadPowerupState(address));
-  const [radarFlash, setRadarFlash] = useState<null | { n: number }>(null);
+  const [radarFlash, setRadarFlash] = useState<null | { n: number; cells: Coord[] }>(null);
+  // Ephemeral per-cell shot FX. We prune entries after the animation window.
+  const [enemyFx, setEnemyFx] = useState<CellFx[]>([]);
+  const [myFx, setMyFx] = useState<CellFx[]>([]);
+  // Bomb arc overlay targets (one per 3x3 strike). Cleared after landing.
+  const [bombArc, setBombArc] = useState<{ row: number; col: number; ts: number } | null>(null);
   const botMemory = useRef<BotMemory>(createBotMemory());
   const finished = useRef(false);
+  const startedAt = useRef(Date.now());
+  const powerupsUsed = useRef(false);
+  const firstSunkEmitted = useRef(false);
+
+  // Drop expired FX entries — keeps the prop array tight and allows a
+  // future shot at the same coord to mount a fresh animation.
+  useEffect(() => {
+    if (enemyFx.length === 0 && myFx.length === 0) return;
+    const tm = setTimeout(() => {
+      const cutoff = Date.now() - FX_LIFETIME_MS;
+      setEnemyFx((xs) => xs.filter((f) => f.ts > cutoff));
+      setMyFx((xs) => xs.filter((f) => f.ts > cutoff));
+    }, FX_LIFETIME_MS);
+    return () => clearTimeout(tm);
+  }, [enemyFx, myFx]);
+
+  function pushEnemyFx(row: number, col: number, outcome: "miss" | "hit" | "sunk") {
+    setEnemyFx((xs) => [
+      ...xs.filter((f) => !(f.row === row && f.col === col)),
+      { row, col, outcome, ts: Date.now() + Math.random() },
+    ]);
+  }
+  function pushMyFx(row: number, col: number, outcome: "miss" | "hit" | "sunk") {
+    setMyFx((xs) => [
+      ...xs.filter((f) => !(f.row === row && f.col === col)),
+      { row, col, outcome, ts: Date.now() + Math.random() },
+    ]);
+  }
 
   useEffect(() => {
     function refresh() {
@@ -65,7 +110,13 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
     (won: boolean, shotsP: number, shotsB: number) => {
       finished.current = true;
       setTimeout(() => (won ? sfx.victory() : sfx.defeat()), 400);
-      onFinished(won, { playerShots: shotsP, botShots: shotsB });
+      onFinished(won, {
+        playerShots: shotsP,
+        botShots: shotsB,
+        powerupsUsed: powerupsUsed.current,
+        durationMs: Date.now() - startedAt.current,
+        firstSunkEmitted: firstSunkEmitted.current,
+      });
     },
     [onFinished],
   );
@@ -86,19 +137,22 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (aim === "radar") {
         if (powerups.inventory.radar <= 0) return;
         consumePowerup(address, "radar");
+        powerupsUsed.current = true;
         let count = 0;
+        const cells: Coord[] = [];
         for (let dr = -1; dr <= 1; dr++) {
           for (let dc = -1; dc <= 1; dc++) {
             const rr = row + dr;
             const cc = col + dc;
             if (rr < 0 || rr > 9 || cc < 0 || cc > 9) continue;
+            cells.push([rr, cc]);
             const cell = enemyBoard.cells[rr][cc];
             if (cell.kind === "ship") count++;
           }
         }
         sfx.click();
-        setRadarFlash({ n: count });
-        setTimeout(() => setRadarFlash(null), 2600);
+        setRadarFlash({ n: count, cells });
+        setTimeout(() => setRadarFlash(null), 3500);
         setLog((l) => [
           ...l,
           { side: "player", coord: [row, col], outcome: count > 0 ? "hit" : "miss", powerup: "radar" },
@@ -112,6 +166,11 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (aim === "bomb") {
         if (powerups.inventory.bomb <= 0) return;
         consumePowerup(address, "bomb");
+        powerupsUsed.current = true;
+        // Launch the projectile animation first, then resolve damage after
+        // it lands so the explosion and FX read as one event.
+        setBombArc({ row, col, ts: Date.now() });
+        setTimeout(() => setBombArc(null), 900);
         let board = enemyBoard;
         let sunks = 0;
         const newEntries: LogEntry[] = [];
@@ -123,13 +182,20 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
             const res = fireAtCell(board, rr, cc);
             if (res.outcome === "already") continue;
             board = res.board;
-            if (res.outcome === "sunk") sunks++;
+            if (res.outcome === "sunk") {
+              sunks++;
+              if (!firstSunkEmitted.current) {
+                firstSunkEmitted.current = true;
+                markIf(address, "firstBlood", true);
+              }
+            }
             newEntries.push({
               side: "player",
               coord: [rr, cc],
               outcome: res.outcome as "miss" | "hit" | "sunk",
               powerup: "bomb",
             });
+            pushEnemyFx(rr, cc, res.outcome as "miss" | "hit" | "sunk");
           }
         }
         setEnemyBoard(board);
@@ -158,10 +224,15 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         ...l,
         { side: "player", coord: [row, col], outcome: result.outcome as "miss" | "hit" | "sunk", auto },
       ]);
+      pushEnemyFx(row, col, result.outcome as "miss" | "hit" | "sunk");
       sfx.shot();
       if (result.outcome === "miss") setTimeout(() => sfx.miss(), 120);
       else if (result.outcome === "hit") setTimeout(() => sfx.hit(), 120);
       else if (result.outcome === "sunk") setTimeout(() => sfx.sunk(), 120);
+      if (result.outcome === "sunk" && !firstSunkEmitted.current) {
+        firstSunkEmitted.current = true;
+        markIf(address, "firstBlood", true);
+      }
       if (allShipsSunk(result.board)) {
         finalize(true, playerShots + 1, botShots);
         return;
@@ -192,6 +263,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         ...l,
         { side: "bot", coord: shot, outcome: result.outcome as "miss" | "hit" | "sunk" },
       ]);
+      pushMyFx(shot[0], shot[1], result.outcome as "miss" | "hit" | "sunk");
       if (result.outcome === "miss") sfx.miss();
       else if (result.outcome === "hit") sfx.hit();
       else if (result.outcome === "sunk") sfx.sunk();
@@ -247,41 +319,20 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h3 className="font-display text-lg text-sea-100">Enemy waters</h3>
-            {aim !== "shot" && (
-              <button
-                type="button"
-                onClick={() => setAim("shot")}
-                className="rounded-full bg-coral-500/20 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-coral-200 ring-1 ring-coral-400/50 hover:bg-coral-500/30"
-              >
-                {t("pu.cancel")}
-              </button>
-            )}
-          </div>
-          {aim !== "shot" && (
-            <div
-              role="status"
-              className="mb-2 rounded-xl bg-gold-500/15 px-3 py-2 text-xs font-semibold text-gold-200 ring-1 ring-gold-400/40"
-            >
-              {aim === "bomb" ? t("pu.aim.bomb") : t("pu.aim.radar")}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-sea-400">
+                Your shots: <strong className="text-sea-200">{playerShots}</strong>
+              </span>
+              {aim !== "shot" && (
+                <button
+                  type="button"
+                  onClick={() => setAim("shot")}
+                  className="rounded-full bg-coral-500/20 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-coral-200 ring-1 ring-coral-400/50 hover:bg-coral-500/30"
+                >
+                  {t("pu.cancel")}
+                </button>
+              )}
             </div>
-          )}
-          {radarFlash && (
-            <div
-              role="status"
-              className="mb-2 animate-fade-in rounded-xl bg-sea-500/20 px-3 py-2 text-xs font-semibold text-sea-100 ring-1 ring-sea-400/50"
-            >
-              {radarFlash.n > 0 ? t("pu.radarResult", { n: radarFlash.n }) : t("pu.radarClear")}
-            </div>
-          )}
-          <BoardGrid
-            board={publicView(enemyBoard)}
-            mode="attack"
-            onCellClick={(r, c) => handleAttack(r, c, false)}
-            disabled={!yourTurn}
-            data-testid="board-enemy"
-          />
-          <div className="mt-2 text-xs text-sea-400">
-            Your shots: <strong className="text-sea-200">{playerShots}</strong>
           </div>
           <PowerupBar
             active={yourTurn}
@@ -293,6 +344,52 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
               sfx.click();
             }}
           />
+          {aim !== "shot" && (
+            <div
+              role="status"
+              className="mt-2 rounded-xl bg-gold-500/15 px-3 py-2 text-xs font-semibold text-gold-200 ring-1 ring-gold-400/40"
+            >
+              {aim === "bomb" ? t("pu.aim.bomb") : t("pu.aim.radar")}
+            </div>
+          )}
+          {radarFlash && (
+            <div
+              role="status"
+              className={`mt-2 flex animate-fade-in items-center gap-3 rounded-2xl px-4 py-3 ring-2 ${
+                radarFlash.n > 0
+                  ? "bg-sea-500/30 text-sea-50 ring-sea-300/70 shadow-glow"
+                  : "bg-emerald-500/20 text-emerald-100 ring-emerald-400/50"
+              }`}
+            >
+              <span className="text-2xl" aria-hidden>
+                📡
+              </span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.25em] opacity-70">
+                  {t("pu.title")}
+                </span>
+                <span className="font-display text-base font-bold sm:text-lg">
+                  {radarFlash.n > 0
+                    ? t("pu.radarResult", { n: radarFlash.n })
+                    : t("pu.radarClear")}
+                </span>
+              </div>
+            </div>
+          )}
+          <div className="relative mt-3">
+            <BoardGrid
+              board={publicView(enemyBoard)}
+              mode="attack"
+              onCellClick={(r, c) => handleAttack(r, c, false)}
+              disabled={!yourTurn}
+              highlight={radarFlash?.cells}
+              fx={enemyFx}
+              data-testid="board-enemy"
+            />
+            {bombArc && (
+              <BombArc key={bombArc.ts} row={bombArc.row} col={bombArc.col} />
+            )}
+          </div>
         </section>
 
         <aside className="space-y-4">
@@ -305,7 +402,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-display text-lg text-sea-100">Your fleet</h3>
         </div>
-        <BoardGrid board={myBoard} mode="own" disabled data-testid="board-own" />
+        <BoardGrid board={myBoard} mode="own" disabled fx={myFx} data-testid="board-own" />
         <p className="mt-2 text-xs text-sea-400">
           Bot shots: <strong className="text-sea-200">{botShots}</strong>
         </p>

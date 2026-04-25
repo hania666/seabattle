@@ -8,11 +8,20 @@ import { DIFFICULTY_ENTRY_FEE_ETH, DIFFICULTY_LABELS } from "../../lib/game/type
 import { BOT_MATCH_ADDRESS, botMatchAbi } from "../../lib/contracts";
 import { DifficultySelect } from "./DifficultySelect";
 import { ShipPlacement } from "./ShipPlacement";
-import { GameBoard } from "./GameBoard";
+import { GameBoard, type PveFinishStats } from "./GameBoard";
 import { ResultScreen } from "./ResultScreen";
 import { BackLink, Button, StatusCard, TxLink } from "../../components/ui";
 import { errMessage } from "../../lib/format";
-import { recordMatch } from "../../lib/stats";
+import { loadStats, recordMatch } from "../../lib/stats";
+import { grantPveReward, loadCoins } from "../../lib/coins";
+import { addProgress, markIf, recordProgress } from "../../lib/achievements";
+import {
+  applyXpDelta,
+  currentLossStreak,
+  lossStreakPenalty,
+  STREAK_THRESHOLD,
+} from "../../lib/rankDecay";
+import { saveStats } from "../../lib/stats";
 
 type Stage = "select" | "staking" | "placement" | "playing" | "result";
 
@@ -54,9 +63,46 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
     }
   }
 
-  function handleFinished(won: boolean, stats: { playerShots: number; botShots: number }) {
-    setResult({ won, ...stats });
-    recordMatch(address, { mode: "pve", won, difficulty });
+  function handleFinished(won: boolean, stats: PveFinishStats) {
+    setResult({ won, playerShots: stats.playerShots, botShots: stats.botShots });
+    const prev = loadStats(address);
+    const priorTotalWins = prev.pveWins + prev.pvpWins;
+    const next = recordMatch(address, { mode: "pve", won, difficulty });
+    // Win streak = most recent consecutive wins (inverse of loss streak).
+    let winStreak = 0;
+    for (const m of next.matches) {
+      if (!m.won) break;
+      winStreak++;
+    }
+    addProgress(address, "hundredMatches");
+    addProgress(address, "fiveHundredMatches");
+    if (won) {
+      grantPveReward(address, true, difficulty, winStreak);
+      markIf(address, "firstWin", priorTotalWins === 0);
+      recordProgress(address, "tenWinStreak", winStreak);
+      markIf(address, "ironFist", difficulty === 2 && !stats.powerupsUsed);
+      markIf(address, "blindSeer", !stats.powerupsUsed);
+      markIf(address, "quickDraw", stats.durationMs > 0 && stats.durationMs < 60_000);
+      markIf(address, "silentHunter", stats.playerShots <= 25);
+      markIf(address, "firstTryHard", difficulty === 2 && priorTotalWins === 0);
+      markIf(address, "rankMatros", next.xp >= 100);
+      markIf(address, "rankMichman", next.xp >= 1500);
+      markIf(address, "rankLieutenant", next.xp >= 3000);
+      markIf(address, "rankAdmiral", next.xp >= 20000);
+      markIf(address, "richCaptain", loadCoins(address) >= 1000);
+    } else {
+      // On a loss, check if we just crossed the loss-streak threshold and
+      // apply a rank-scaled XP penalty. Skipped while in grace (stats.xp < FLOOR).
+      const lossStreak = currentLossStreak(next);
+      if (lossStreak >= STREAK_THRESHOLD) {
+        const prevXp = loadStats(address).xp;
+        const penalty = lossStreakPenalty(prevXp);
+        const xpNext = applyXpDelta(prevXp, -penalty);
+        if (xpNext !== prevXp) {
+          saveStats({ ...next, xp: xpNext }, address);
+        }
+      }
+    }
     setStage("result");
   }
 
