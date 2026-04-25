@@ -147,18 +147,34 @@ export function dailyClaimRemainingMs(state: PowerupState): number {
   return Math.max(0, DAILY_COOLDOWN_MS - (Date.now() - state.lastDailyClaim));
 }
 
-export function claimDaily(address: string | null | undefined): boolean {
+export interface DailyClaimResult {
+  claimed: boolean;
+  bombAdded: boolean;
+  radarAdded: boolean;
+  coinsAdded: number;
+}
+
+export function claimDaily(address: string | null | undefined): DailyClaimResult {
   const state = loadPowerupState(address);
-  if (!canClaimDaily(state)) return false;
+  if (!canClaimDaily(state)) {
+    return { claimed: false, bombAdded: false, radarAdded: false, coinsAdded: 0 };
+  }
   // Clamp to cap so a maxed-out inventory doesn't quietly exceed the limit.
   // Coins + cooldown still tick — the daily slot was used.
-  if (state.inventory.bomb < INVENTORY_CAP.bomb) state.inventory.bomb += 1;
-  if (state.inventory.radar < INVENTORY_CAP.radar) state.inventory.radar += 1;
+  const bombAdded = state.inventory.bomb < INVENTORY_CAP.bomb;
+  const radarAdded = state.inventory.radar < INVENTORY_CAP.radar;
+  if (bombAdded) state.inventory.bomb += 1;
+  if (radarAdded) state.inventory.radar += 1;
   state.lastDailyClaim = Date.now();
   save(address, state);
   addCoins(COINS_REWARD.dailyCrate, address);
   addProgress(address, "dailyRoutine");
-  return true;
+  return {
+    claimed: true,
+    bombAdded,
+    radarAdded,
+    coinsAdded: COINS_REWARD.dailyCrate,
+  };
 }
 
 /**

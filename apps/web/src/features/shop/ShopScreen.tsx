@@ -70,11 +70,15 @@ export function ShopBody({ compact = false }: { compact?: boolean } = {}) {
   }
 
   function onClaim() {
-    if (claimDaily(address)) {
-      sfx.coin();
-      setFlash({ kind: "ok", text: "+1 💣  +1 📡" });
-      setTimeout(() => setFlash(null), 1800);
-    }
+    const res = claimDaily(address);
+    if (!res.claimed) return;
+    sfx.coin();
+    const parts: string[] = [];
+    if (res.bombAdded) parts.push("+1 💣");
+    if (res.radarAdded) parts.push("+1 📡");
+    if (res.coinsAdded > 0) parts.push(`+${res.coinsAdded} 🪙`);
+    setFlash({ kind: "ok", text: parts.join("  ") });
+    setTimeout(() => setFlash(null), 1800);
   }
 
   const claimable = canClaimDaily(state);
