@@ -116,6 +116,10 @@ function save(address: string | null | undefined, state: AchievementState) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(keyFor(address), JSON.stringify(state));
+    snapshotCache.set(keyFor(address), {
+      raw: window.localStorage.getItem(keyFor(address)),
+      state,
+    });
     window.dispatchEvent(new Event("ach:updated"));
   } catch {
     /* quota exceeded */
@@ -203,17 +207,35 @@ export function recordPurchase(
 }
 
 function subscribe(cb: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
   const l = () => cb();
   window.addEventListener("ach:updated", l);
   return () => window.removeEventListener("ach:updated", l);
 }
 
+// Snapshot cache so useSyncExternalStore's getSnapshot returns a stable
+// reference between renders when the underlying localStorage row is
+// unchanged. Keyed by storage key so multiple addresses can be observed.
+const snapshotCache = new Map<string, { raw: string | null; state: AchievementState }>();
+
+function getSnapshot(address: string | null | undefined): AchievementState {
+  const k = keyFor(address);
+  const raw = typeof window === "undefined" ? null : window.localStorage.getItem(k);
+  const cached = snapshotCache.get(k);
+  if (cached && cached.raw === raw) return cached.state;
+  const state = loadAchievements(address);
+  snapshotCache.set(k, { raw, state });
+  return state;
+}
+
+const SSR_SNAPSHOT = emptyState();
+
 /** Reactive read of the achievements map for a given address. */
 export function useAchievements(address: string | null | undefined): AchievementState {
   return useSyncExternalStore(
     subscribe,
-    () => loadAchievements(address),
-    () => emptyState(),
+    () => getSnapshot(address),
+    () => SSR_SNAPSHOT,
   );
 }
 
@@ -234,5 +256,6 @@ export function resetAchievements(address?: string | null): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(keyFor(address));
   window.localStorage.removeItem(purchasedKeyFor(address));
+  snapshotCache.delete(keyFor(address));
   window.dispatchEvent(new Event("ach:updated"));
 }
