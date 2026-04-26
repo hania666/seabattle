@@ -87,13 +87,13 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
   function pushEnemyFx(row: number, col: number, outcome: "miss" | "hit" | "sunk") {
     setEnemyFx((xs) => [
       ...xs.filter((f) => !(f.row === row && f.col === col)),
-      { row, col, outcome, ts: Date.now() + Math.random() },
+      { row, col, outcome, ts: Date.now() },
     ]);
   }
   function pushMyFx(row: number, col: number, outcome: "miss" | "hit" | "sunk") {
     setMyFx((xs) => [
       ...xs.filter((f) => !(f.row === row && f.col === col)),
-      { row, col, outcome, ts: Date.now() + Math.random() },
+      { row, col, outcome, ts: Date.now() },
     ]);
   }
 

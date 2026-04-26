@@ -12,8 +12,10 @@ import { ShotFX, type ShotOutcome } from "../art/ShotFX";
 
 /**
  * One-shot FX overlay request: identifies a single shot the UI should
- * animate once. `ts` is used as the React key so the same coord can
- * re-trigger the animation on a repeat shot.
+ * animate once. `ts` is the wall-clock timestamp the caller used to
+ * schedule the entry — also used to expire it after the animation
+ * window. `${row},${col},${ts}` doubles as the React key so the same
+ * coord can re-trigger the animation on a repeat shot.
  */
 export interface CellFx {
   row: number;
@@ -217,7 +219,9 @@ function Row({
             {isHit && <HitCell />}
             {(() => {
               const f = fxMap.get(`${row},${c}`);
-              return f ? <ShotFX key={f.ts} outcome={f.outcome} /> : null;
+              return f ? (
+                <ShotFX key={`${f.row},${f.col},${f.ts}`} outcome={f.outcome} />
+              ) : null;
             })()}
           </button>
         );

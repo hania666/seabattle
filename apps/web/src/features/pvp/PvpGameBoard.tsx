@@ -24,11 +24,15 @@ function useShotFx(shots: ShotRecord[]): CellFx[] {
 
   useEffect(() => {
     if (shots.length > prevLen.current) {
-      const added = shots.slice(prevLen.current).map((s) => ({
+      const now = Date.now();
+      const added = shots.slice(prevLen.current).map((s, i) => ({
         row: s.coord[0],
         col: s.coord[1],
         outcome: s.outcome,
-        ts: Date.now() + Math.random(),
+        // i disambiguates the React key when several shots are folded in
+        // on the same render tick; cleanup uses ts only and tolerates a
+        // sub-millisecond skew.
+        ts: now + i,
       }));
       setFx((xs) => [...xs, ...added]);
     }
