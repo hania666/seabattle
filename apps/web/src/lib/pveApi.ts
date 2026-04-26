@@ -13,7 +13,14 @@
  *
  * Both helpers take an `AuthedFetch` (from `useAuth`) so the call goes out
  * with the wallet-scoped JWT. Errors propagate as `PveApiError` so the UI
- * can surface a stable error code (`win_unverified`, `phantom_hit`, …).
+ * can surface a stable error code. The full set the server may emit:
+ *   - `win_unverified` — claimed won=true, replay disagrees
+ *   - `loss_unverified` — claimed won=false, replay shows user already won
+ *   - `phantom_hit` / `bot_phantom_hit` — hit on an empty cell
+ *   - `missed_actual_ship` / `bot_missed_actual_ship` — miss on a real ship
+ *   - `move_after_finish` — extra moves recorded after the match ended
+ *   - `wallet_mismatch` / `match_not_found` / `match_already_settled`
+ *   - `fleet_*` / `move_*` — submitted fleet / log was malformed
  */
 import { SERVER_URL } from "./socket";
 import type { AuthedFetch } from "./useAuth";
