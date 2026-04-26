@@ -107,21 +107,27 @@ export async function startPveMatch(
   // INSERT ... ON CONFLICT DO NOTHING + RETURNING gives us the new row only
   // when we actually inserted; on conflict we fall back to a SELECT to
   // recover the existing seed.
-  const inserted = await query<{ seed: string; host_wallet: string; status: string }>(
+  type StartRow = {
+    seed: string;
+    host_wallet: string;
+    status: string;
+    difficulty: string;
+  };
+  const inserted = await query<StartRow>(
     `INSERT INTO matches (id, mode, difficulty, host_wallet, seed, status)
      VALUES ($1, 'pve', $2, $3, $4, 'in_progress')
      ON CONFLICT (id) DO NOTHING
-     RETURNING seed, host_wallet, status`,
+     RETURNING seed, host_wallet, status, difficulty`,
     [chainMatchId, difficulty, wallet, seed],
   );
-  if (inserted[0]) {
-    return { matchId: chainMatchId, seed: inserted[0].seed as `0x${string}`, difficulty };
-  }
-  const existing = await query<{ seed: string; host_wallet: string; status: string }>(
-    `SELECT seed, host_wallet, status FROM matches WHERE id = $1`,
-    [chainMatchId],
-  );
-  const row = existing[0];
+  const row =
+    inserted[0] ??
+    (
+      await query<StartRow>(
+        `SELECT seed, host_wallet, status, difficulty FROM matches WHERE id = $1`,
+        [chainMatchId],
+      )
+    )[0];
   if (!row) {
     // Vanishingly unlikely (insert returned no row but select also empty);
     // surface as a 500 so the client can retry.
@@ -133,7 +139,14 @@ export async function startPveMatch(
   if (row.status !== "in_progress") {
     throw new PveError(409, "match_already_settled");
   }
-  return { matchId: chainMatchId, seed: row.seed as `0x${string}`, difficulty };
+  // Always return the *persisted* difficulty, not the caller's parameter —
+  // a retry with a mismatched difficulty must reflect the original choice
+  // so the client doesn't play under the wrong assumption.
+  return {
+    matchId: chainMatchId,
+    seed: row.seed as `0x${string}`,
+    difficulty: row.difficulty as Difficulty,
+  };
 }
 
 export interface FinishInput {
@@ -268,13 +281,13 @@ export async function finishPveMatch(
   if (!ctx.botMatchAddress) {
     throw new PveError(503, "bot_match_not_configured");
   }
-  if (typeof body.matchId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(body.matchId)) {
-    throw new PveError(400, "bad_match_id");
-  }
+  // Normalise via the same helper /api/pve/start uses, so case-insensitive
+  // chain ids resolve to the same DB row regardless of which casing the
+  // client happens to send.
+  const matchId = parseChainMatchId(body.matchId);
   if (typeof body.won !== "boolean") {
     throw new PveError(400, "bad_won");
   }
-  const matchId = body.matchId;
   const won = body.won;
 
   // Single transaction: lock the match row, validate, then write the
