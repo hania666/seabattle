@@ -25,6 +25,7 @@ import {
   verifySignature,
   type AuthSession,
 } from "./auth";
+import { syncStatsAfterSignIn } from "./serverStats";
 
 /** `fetch` bound to the connected wallet's JWT, or unauthenticated when none. */
 export type AuthedFetch = (
@@ -105,6 +106,13 @@ export function useAuth(): UseAuth {
       };
       setSession(next);
       setSessionState(next);
+      // Reconcile localStorage stats with the server in the background.
+      // Failures are silent so the sign-in still counts as successful even
+      // if the stats round-trip drops; the next successful call will pick
+      // up the same payload via MAX-merge.
+      const fetchForWallet: AuthedFetch = (input, init) =>
+        authedFetch(verified.wallet, input, init);
+      void syncStatsAfterSignIn(verified.wallet, fetchForWallet);
       return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "sign-in failed";
