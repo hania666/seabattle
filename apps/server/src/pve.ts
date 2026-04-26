@@ -31,7 +31,7 @@
  */
 import { randomBytes } from "node:crypto";
 import type { Hex, PrivateKeyAccount } from "viem";
-import { normaliseWallet, query, recordAudit } from "./db";
+import { normaliseWallet, query, recordAudit, withTransaction } from "./db";
 import { signResult } from "./signer";
 import {
   FLEET_TOTAL_CELLS,
@@ -209,14 +209,9 @@ export interface FinishResult {
   won: boolean;
 }
 
-async function loadMatch(matchId: string): Promise<MatchRow | null> {
-  const rows = await query<MatchRow>(
-    `SELECT id, host_wallet, status, difficulty, seed, winner_wallet
-     FROM matches WHERE id = $1`,
-    [matchId],
-  );
-  return rows[0] ?? null;
-}
+type Outcome =
+  | { kind: "ok" }
+  | { kind: "reject"; reason: string; cheat: boolean };
 
 export async function finishPveMatch(
   rawWallet: string,
@@ -233,101 +228,139 @@ export async function finishPveMatch(
   if (typeof body.won !== "boolean") {
     throw new PveError(400, "bad_won");
   }
-  const match = await loadMatch(body.matchId);
-  if (!match) throw new PveError(404, "match_not_found");
-  if (match.host_wallet !== wallet) throw new PveError(403, "wallet_mismatch");
-  if (match.status !== "in_progress") throw new PveError(409, "match_already_settled");
-  if (!match.seed) throw new PveError(500, "missing_seed");
+  const matchId = body.matchId;
+  const won = body.won;
 
-  let userShips: PlacedShip[];
-  try {
-    userShips = validateUserFleet(body.userShips);
-  } catch (e) {
-    await rejectMatch(match.id, "fleet_invalid");
-    throw new PveError(400, `fleet_${(e as Error).message.replace(/^invalid fleet: /, "")}`);
-  }
+  // Single transaction: lock the match row, validate, then write the
+  // terminal status (finished or rejected) atomically. This closes the
+  // TOCTOU window where two concurrent /api/pve/finish requests could
+  // each see `in_progress`, both pass validation, and both issue a
+  // signature. The success-path UPDATE uses an extra `AND status =
+  // 'in_progress'` guard as belt-and-braces — if it doesn't hit a row,
+  // someone else won the race and we throw 409.
+  const outcome = await withTransaction<Outcome>(async (client) => {
+    const matchRows = await client.query<MatchRow>(
+      `SELECT id, host_wallet, status, difficulty, seed, winner_wallet
+       FROM matches WHERE id = $1 FOR UPDATE`,
+      [matchId],
+    );
+    const match = matchRows.rows[0];
+    if (!match) throw new PveError(404, "match_not_found");
+    if (match.host_wallet !== wallet) throw new PveError(403, "wallet_mismatch");
+    if (match.status !== "in_progress") {
+      throw new PveError(409, "match_already_settled");
+    }
+    if (!match.seed) throw new PveError(500, "missing_seed");
 
-  let log: MoveLogEntry[];
-  try {
-    log = parseMoveLog(body.moveLog);
-  } catch (e) {
-    await rejectMatch(match.id, "move_log_invalid");
-    throw new PveError(400, `move_${(e as Error).message.replace(/^invalid moveLog: /, "")}`);
-  }
+    let userShips: PlacedShip[];
+    try {
+      userShips = validateUserFleet(body.userShips);
+    } catch (e) {
+      const reason = `fleet_${(e as Error).message.replace(/^invalid fleet: /, "")}`;
+      await client.query(
+        `UPDATE matches SET status = 'rejected', rejected_reason = $2, finished_at = now()
+         WHERE id = $1 AND status = 'in_progress'`,
+        [matchId, reason],
+      );
+      return { kind: "reject", reason, cheat: false };
+    }
 
-  const botShips = randomFleet(seededRandom(match.seed));
-  try {
-    verifyWinClaim(log, botShips, body.won);
-  } catch (e) {
-    if (e instanceof PveError) {
-      await rejectMatch(match.id, e.code);
+    let log: MoveLogEntry[];
+    try {
+      log = parseMoveLog(body.moveLog);
+    } catch (e) {
+      const reason = `move_${(e as Error).message.replace(/^invalid moveLog: /, "")}`;
+      await client.query(
+        `UPDATE matches SET status = 'rejected', rejected_reason = $2, finished_at = now()
+         WHERE id = $1 AND status = 'in_progress'`,
+        [matchId, reason],
+      );
+      return { kind: "reject", reason, cheat: false };
+    }
+
+    const botShips = randomFleet(seededRandom(match.seed));
+    try {
+      verifyWinClaim(log, botShips, won);
+    } catch (e) {
+      if (e instanceof PveError) {
+        await client.query(
+          `UPDATE matches SET status = 'rejected', rejected_reason = $2, finished_at = now()
+           WHERE id = $1 AND status = 'in_progress'`,
+          [matchId, e.code],
+        );
+        return { kind: "reject", reason: e.code, cheat: true };
+      }
+      throw e;
+    }
+
+    const updateRes = await client.query(
+      `UPDATE matches SET
+          status = 'finished',
+          winner_wallet = $2,
+          move_log = $3,
+          result = $4,
+          finished_at = now()
+        WHERE id = $1 AND status = 'in_progress'`,
+      [
+        matchId,
+        won ? wallet : null,
+        JSON.stringify({ userShips, log }),
+        JSON.stringify({ won }),
+      ],
+    );
+    if (updateRes.rowCount !== 1) {
+      throw new PveError(409, "match_already_settled");
+    }
+
+    if (won) {
+      await client.query(
+        `UPDATE stats SET
+            pve_wins           = pve_wins + 1,
+            current_win_streak = current_win_streak + 1,
+            longest_win_streak = GREATEST(longest_win_streak, current_win_streak + 1),
+            last_match_at      = now(),
+            updated_at         = now()
+          WHERE wallet = $1`,
+        [wallet],
+      );
+    } else {
+      await client.query(
+        `UPDATE stats SET
+            pve_losses         = pve_losses + 1,
+            current_win_streak = 0,
+            last_match_at      = now(),
+            updated_at         = now()
+          WHERE wallet = $1`,
+        [wallet],
+      );
+    }
+
+    return { kind: "ok" };
+  });
+
+  if (outcome.kind === "reject") {
+    if (outcome.cheat) {
+      // Audit lives outside the tx so a flaky audit insert can't roll back
+      // a successfully-recorded rejection.
       await recordAudit({
         wallet,
         action: "pve.cheat",
-        payload: { matchId: match.id, reason: e.code },
+        payload: { matchId, reason: outcome.reason },
         severity: "cheat",
       });
     }
-    throw e;
-  }
-
-  await query(
-    `UPDATE matches SET
-        status = 'finished',
-        winner_wallet = $2,
-        move_log = $3,
-        result = $4,
-        finished_at = now()
-      WHERE id = $1`,
-    [
-      match.id,
-      body.won ? wallet : null,
-      JSON.stringify({ userShips, log }),
-      JSON.stringify({ won: body.won }),
-    ],
-  );
-
-  // Update aggregate stats: pve_wins/pve_losses, current/longest streak.
-  if (body.won) {
-    await query(
-      `UPDATE stats SET
-          pve_wins           = pve_wins + 1,
-          current_win_streak = current_win_streak + 1,
-          longest_win_streak = GREATEST(longest_win_streak, current_win_streak + 1),
-          last_match_at      = now(),
-          updated_at         = now()
-        WHERE wallet = $1`,
-      [wallet],
-    );
-  } else {
-    await query(
-      `UPDATE stats SET
-          pve_losses         = pve_losses + 1,
-          current_win_streak = 0,
-          last_match_at      = now(),
-          updated_at         = now()
-        WHERE wallet = $1`,
-      [wallet],
-    );
+    throw new PveError(400, outcome.reason);
   }
 
   const signature = await signResult(ctx.signer, {
     chainId: ctx.chainId,
     botMatchAddress: ctx.botMatchAddress,
-    matchId: match.id as `0x${string}`,
+    matchId: matchId as `0x${string}`,
     player: wallet as `0x${string}`,
-    won: body.won,
+    won,
   });
 
-  return { signature, matchId: match.id as `0x${string}`, won: body.won };
-}
-
-async function rejectMatch(matchId: string, reason: string): Promise<void> {
-  await query(
-    `UPDATE matches SET status = 'rejected', rejected_reason = $2, finished_at = now()
-     WHERE id = $1 AND status = 'in_progress'`,
-    [matchId, reason],
-  );
+  return { signature, matchId: matchId as `0x${string}`, won };
 }
 
 export function parseDifficulty(input: unknown): Difficulty {
