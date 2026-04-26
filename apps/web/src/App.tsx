@@ -7,6 +7,9 @@ import { splashSeen } from "./features/splash/splashState";
 import { Hud } from "./components/Hud";
 import { SignInButton } from "./components/SignInButton";
 import { SettingsModal } from "./components/SettingsModal";
+import { BetaBanner } from "./components/BetaBanner";
+import { NetworkPrompt } from "./components/NetworkPrompt";
+import { FeedbackModal } from "./components/FeedbackModal";
 import { AchievementToastBridge } from "./features/profile/AchievementToastBridge";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Home } from "./features/home/Home";
@@ -54,6 +57,7 @@ function AppInner() {
   const [screen, setScreen] = useState<Screen>("home");
   const [showSplash, setShowSplash] = useState(() => !splashSeen());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [legalViewer, setLegalViewer] = useState<"tos" | "privacy" | null>(null);
 
   // Bootstrap: run coin migration + pending inactivity decay once per
@@ -73,6 +77,7 @@ function AppInner() {
     <>
       {showSplash && <Splash onFinish={() => setShowSplash(false)} />}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
       <AchievementToastBridge />
       <LegalModal
         open={legalViewer !== null}
@@ -161,6 +166,9 @@ function AppInner() {
           </div>
         </header>
 
+        <BetaBanner />
+        <NetworkPrompt />
+
         <main className="flex-1 px-4 py-6 sm:px-6 sm:py-10">
           <Suspense fallback={<ScreenSpinner />}>
             {screen === "home" && (
@@ -225,6 +233,18 @@ function AppInner() {
               >
                 GitHub
               </a>
+              <span className="text-sea-700">·</span>
+              <button
+                type="button"
+                onClick={() => {
+                  sfx.click();
+                  setFeedbackOpen(true);
+                }}
+                className="underline underline-offset-2 hover:text-sea-100"
+                data-testid="footer-feedback"
+              >
+                {t("nav.feedback")}
+              </button>
             </div>
             <p className="text-center text-[11px] text-sea-400 sm:text-right">
               {t("footer.tagline")}
