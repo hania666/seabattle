@@ -312,27 +312,42 @@ export async function finishPveMatch(
       throw new PveError(409, "match_already_settled");
     }
 
-    if (won) {
-      await client.query(
-        `UPDATE stats SET
-            pve_wins           = pve_wins + 1,
-            current_win_streak = current_win_streak + 1,
-            longest_win_streak = GREATEST(longest_win_streak, current_win_streak + 1),
-            last_match_at      = now(),
-            updated_at         = now()
-          WHERE wallet = $1`,
-        [wallet],
-      );
-    } else {
-      await client.query(
-        `UPDATE stats SET
-            pve_losses         = pve_losses + 1,
-            current_win_streak = 0,
-            last_match_at      = now(),
-            updated_at         = now()
-          WHERE wallet = $1`,
-        [wallet],
-      );
+    // Defensive seed: the auth flow already runs `getOrCreateUser`, but if a
+    // user row was manually deleted or a stats row never got created, a bare
+    // UPDATE would silently match zero rows — the match would commit as
+    // finished without a stats bump. Belt-and-braces: ensure the rows exist
+    // first (no-ops in the common case), then UPDATE.
+    await client.query(
+      `INSERT INTO users (wallet) VALUES ($1) ON CONFLICT (wallet) DO NOTHING`,
+      [wallet],
+    );
+    await client.query(
+      `INSERT INTO stats (wallet) VALUES ($1) ON CONFLICT (wallet) DO NOTHING`,
+      [wallet],
+    );
+
+    const statsUpdate = await client.query(
+      won
+        ? `UPDATE stats SET
+              pve_wins           = pve_wins + 1,
+              current_win_streak = current_win_streak + 1,
+              longest_win_streak = GREATEST(longest_win_streak, current_win_streak + 1),
+              last_match_at      = now(),
+              updated_at         = now()
+            WHERE wallet = $1`
+        : `UPDATE stats SET
+              pve_losses         = pve_losses + 1,
+              current_win_streak = 0,
+              last_match_at      = now(),
+              updated_at         = now()
+            WHERE wallet = $1`,
+      [wallet],
+    );
+    if (statsUpdate.rowCount !== 1) {
+      // Should be impossible given the upsert above; if it ever happens we
+      // want the whole tx rolled back rather than committing an inconsistent
+      // match-without-stats state.
+      throw new Error("stats row not updated after upsert");
     }
 
     return { kind: "ok" };
