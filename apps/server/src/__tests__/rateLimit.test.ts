@@ -8,7 +8,7 @@
  *   - RATE_LIMITS=off makes the limiter a pass-through
  *   - the wallet-keyed limiter actually keys by wallet, not IP
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express, { type Request, type Response } from "express";
 import http from "node:http";
 import { buildLimiter } from "../middleware/rateLimit";

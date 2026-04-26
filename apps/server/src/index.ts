@@ -141,7 +141,19 @@ app.post("/auth/verify", authLimiter, async (req, res) => {
     return res.json(out);
   } catch (e) {
     if (e instanceof AuthError) {
-      const status = e.code === "banned" ? 403 : 401;
+      // Map AuthError codes onto HTTP status:
+      //   banned             → 403  (account-level block, not a credentials issue)
+      //   sybil_cap_exceeded → 429  (policy/rate-limit, signature was valid)
+      //   everything else    → 401  (auth failure proper)
+      // The 429 mapping for sybil is important: 401 would let a client
+      // re-prompt the wallet for another signature, burning the user's
+      // trust on a problem signing again won't fix.
+      const status =
+        e.code === "banned"
+          ? 403
+          : e.code === "sybil_cap_exceeded"
+          ? 429
+          : 401;
       return res.status(status).json({ error: e.message, code: e.code });
     }
     captureException(e, { route: "/auth/verify" });
