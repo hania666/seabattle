@@ -136,7 +136,7 @@ export async function startPveMatch(
       `SELECT COUNT(*)::text AS c FROM matches
         WHERE host_wallet = $1
           AND mode = 'pve'
-          AND created_at > now() - INTERVAL '24 hours'`,
+          AND started_at > now() - INTERVAL '24 hours'`,
       [wallet],
     );
     if (Number(capCount[0]?.c ?? "0") >= PVE_DAILY_CAP) {
