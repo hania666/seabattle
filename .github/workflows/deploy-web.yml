@@ -1,0 +1,59 @@
+# Deploy apps/web to Cloudflare Pages.
+#
+# Currently `workflow_dispatch` only — same rationale as deploy-server.yml.
+# Once `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set,
+# add `push:` with `paths: [apps/web/**]` to auto-deploy on merge.
+#
+# Build env vars (VITE_*) need to be set as repo secrets / variables
+# and forwarded explicitly here. Anything not forwarded ends up unset
+# in the build, so the bundle silently falls back to defaults.
+
+name: Deploy Web (Cloudflare Pages)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: wrangler pages deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — require Cloudflare credentials
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] || [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID missing."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/web
+        env:
+          VITE_ABSTRACT_CHAIN: ${{ vars.VITE_ABSTRACT_CHAIN }}
+          VITE_BATTLESHIP_LOBBY_ADDRESS: ${{ vars.VITE_BATTLESHIP_LOBBY_ADDRESS }}
+          VITE_BOT_MATCH_ADDRESS: ${{ vars.VITE_BOT_MATCH_ADDRESS }}
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          VITE_RELEASE_TAG: ${{ github.sha }}
+        run: npm run build
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/web/dist --project-name=seabattle-web --branch=main
