@@ -26,6 +26,12 @@ import {
   parseClientStats,
   StatsValidationError,
 } from "./stats";
+import {
+  finishPveMatch,
+  parseDifficulty,
+  PveError,
+  startPveMatch,
+} from "./pve";
 
 const leaderboardPath =
   process.env.LEADERBOARD_PATH ?? path.resolve(process.cwd(), "data/leaderboard.json");
@@ -160,6 +166,66 @@ if (authEnv) {
    * `MAX(server, client)` for every counter and returns the merged row.
    * Idempotent and replay-safe; safe to call repeatedly.
    */
+  /**
+   * POST /api/pve/start
+   * Body: { difficulty: "easy"|"normal"|"hard" }
+   * Returns: { matchId, seed, difficulty }
+   *
+   * Allocates a server-issued match. The client must seed its bot RNG with
+   * `seed` so the same fleet/decisions are reproducible on the server.
+   */
+  app.post("/api/pve/start", requireAuth(authEnv), async (req, res) => {
+    if (!isDbConfigured()) {
+      return res.status(503).json({ error: "database not configured" });
+    }
+    if (!env.botMatchAddress) {
+      return res.status(503).json({ error: "BOT_MATCH_ADDRESS not configured" });
+    }
+    try {
+      const difficulty = parseDifficulty(req.body?.difficulty);
+      const out = await startPveMatch(req.wallet!, difficulty);
+      return res.json(out);
+    } catch (e) {
+      if (e instanceof PveError) {
+        return res.status(e.status).json({ error: e.code });
+      }
+      captureException(e, { route: "POST /api/pve/start", wallet: req.wallet });
+      return res.status(500).json({ error: "pve start failed" });
+    }
+  });
+
+  /**
+   * POST /api/pve/finish
+   * Body: { matchId, won, userShips, moveLog }
+   * Returns: { signature, matchId, won } on success.
+   *
+   * Validates wallet/match status, structural fleet + move-log shape, and
+   * the win claim against the bot fleet derived from the stored seed. On
+   * success, marks the match `finished` and bumps the wallet's stats. On
+   * failure, marks `rejected` with a reason and audit-logs at `cheat`
+   * severity. Replaces the legacy `/api/bot-result` (which still works
+   * unauthed, for now, but won't be linked from the client after PR #23).
+   */
+  app.post("/api/pve/finish", requireAuth(authEnv), async (req, res) => {
+    if (!isDbConfigured()) {
+      return res.status(503).json({ error: "database not configured" });
+    }
+    try {
+      const out = await finishPveMatch(req.wallet!, req.body ?? {}, {
+        signer: env.signer,
+        chainId: env.chainId,
+        botMatchAddress: env.botMatchAddress ?? null,
+      });
+      return res.json(out);
+    } catch (e) {
+      if (e instanceof PveError) {
+        return res.status(e.status).json({ error: e.code });
+      }
+      captureException(e, { route: "POST /api/pve/finish", wallet: req.wallet });
+      return res.status(500).json({ error: "pve finish failed" });
+    }
+  });
+
   app.post("/api/stats/me/sync", requireAuth(authEnv), async (req, res) => {
     if (!isDbConfigured()) {
       return res.status(503).json({ error: "database not configured" });
