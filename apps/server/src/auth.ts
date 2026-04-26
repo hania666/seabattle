@@ -33,6 +33,7 @@ import {
   query,
   recordAudit,
 } from "./db";
+import { linkIpToWallet, wouldExceedSybilCap } from "./sybil";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -116,6 +117,7 @@ export class AuthError extends Error {
       | "nonce_expired"
       | "wallet_mismatch"
       | "banned"
+      | "sybil_cap_exceeded"
       | "expired",
   ) {
     super(message);
@@ -207,7 +209,22 @@ export async function verifyAndIssueJwt(
     throw new AuthError("wallet is banned", "banned");
   }
 
+  // Sybil cap: refuse new sign-ins from an IP that has already linked too
+  // many distinct wallets in the last 24h. Genuine returning wallets
+  // (already linked to this IP) are exempt.
+  if (await wouldExceedSybilCap(ip, wallet)) {
+    await recordAudit({
+      wallet,
+      action: "siwe.sybil.blocked",
+      payload: { ip },
+      ip,
+      severity: "warn",
+    });
+    throw new AuthError("too many wallets from this ip", "sybil_cap_exceeded");
+  }
+
   await getOrCreateUser(wallet);
+  await linkIpToWallet(ip, wallet);
   await recordAudit({
     wallet,
     action: "siwe.verify.ok",
