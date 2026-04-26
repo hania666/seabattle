@@ -39,6 +39,14 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
   const [stage, setStage] = useState<Stage>("select");
   const [difficulty, setDifficulty] = useState<Difficulty>(0);
   const [playerBoard, setPlayerBoard] = useState<Board | null>(null);
+  // Buffer for a placed board awaiting the server seed. We can't enter
+  // "playing" with a null seed when anti-cheat is on — `GameBoard`'s
+  // `useState` initializer for `enemyBoard` runs once at mount, so a
+  // late-arriving seed wouldn't be applied and the server's replay would
+  // reject every claimed hit. Instead we hold the placement here until
+  // the seed (or a `startError`) arrives, then promote it to the live
+  // board and transition.
+  const [pendingBoard, setPendingBoard] = useState<Board | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
   const [result, setResult] = useState<{ won: boolean; playerShots: number; botShots: number } | null>(null);
 
@@ -111,6 +119,20 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
       },
     );
   }, [isMined, receipt, antiCheatEnabled, chainMatchId, difficulty, authedFetch]);
+
+  // Promote a buffered placement to the live board once we have either a
+  // seed or a definitive failure path (anti-cheat disabled / startError).
+  // GameBoard's `enemyBoard` initializer reads `seed` exactly once at
+  // mount, so this gate is what guarantees the bot fleet rendered to the
+  // user matches the one the server will re-derive in /api/pve/finish.
+  useEffect(() => {
+    if (!pendingBoard) return;
+    const ready = !antiCheatEnabled || Boolean(seed) || Boolean(startError);
+    if (!ready) return;
+    setPlayerBoard(pendingBoard);
+    setPendingBoard(null);
+    setStage("playing");
+  }, [pendingBoard, antiCheatEnabled, seed, startError]);
 
   async function handleDifficulty(d: Difficulty) {
     setDifficulty(d);
@@ -229,6 +251,7 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
     setTxHash(undefined);
     setResult(null);
     setPlayerBoard(null);
+    setPendingBoard(null);
     setChainMatchId(null);
     setSeed(null);
     setStartError(null);
@@ -304,13 +327,34 @@ export function PveScreen({ onExit }: { onExit: () => void }) {
             Entry fee confirmed. Good hunting.
           </p>
         )}
-        <ShipPlacement
-          onReady={(b) => {
-            setPlayerBoard(b);
-            setStage("playing");
-          }}
-          onBack={() => setStage("select")}
-        />
+        {pendingBoard ? (
+          <StatusCard title="Syncing with anti-cheat server">
+            <p className="text-sm text-sea-300">
+              Waiting for the server seed before starting the match. This usually takes a moment.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setPendingBoard(null);
+              }}
+            >
+              Back to placement
+            </Button>
+          </StatusCard>
+        ) : (
+          <ShipPlacement
+            onReady={(b) => {
+              if (antiCheatEnabled && !seed && !startError) {
+                setPendingBoard(b);
+              } else {
+                setPlayerBoard(b);
+                setStage("playing");
+              }
+            }}
+            onBack={() => setStage("select")}
+          />
+        )}
       </div>
     );
   }
