@@ -48,6 +48,16 @@ const app = express();
 // per-IP rate limits would key every request to the same proxy IP.
 app.set("trust proxy", 1);
 
+// Sentry per-request isolation scope. Without this, `Sentry.setUser()`
+// (called from `requireAuth`) mutates the global scope and the wallet
+// of one request leaks into concurrent / subsequent requests. We pass
+// `integrations: []` to `Sentry.init` (no auto-instrumentation), which
+// also turns off the http integration that would normally fork an
+// isolation scope per request — so we fork one ourselves here.
+app.use((_req, _res, next) => {
+  Sentry.withIsolationScope(() => next());
+});
+
 // Security headers (Phase 8.10). The API doesn't render HTML so a real
 // CSP would be redundant — `script-src 'none'` shuts the door on JSON
 // responses being interpreted as scripts via prototype-pollution-style
