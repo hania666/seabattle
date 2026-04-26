@@ -76,12 +76,10 @@ export function FeedbackModal({ open, onClose }: FeedbackModalProps): JSX.Elemen
       window.setTimeout(handleClose, 1500);
       // Side-channel debug breadcrumb (no-op in production with no DSN).
       if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
         console.info("[feedback] captured", { eventId });
       }
     } catch (err) {
       setStatus("error");
-      // eslint-disable-next-line no-console
       console.error("[feedback] capture failed", err);
     }
   }
