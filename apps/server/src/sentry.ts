@@ -30,6 +30,23 @@ export function initSentry(): void {
   initialised = true;
 }
 
+/**
+ * Tag the current Sentry isolation scope with a wallet. Called from
+ * `requireAuth` so that any error captured during the rest of the
+ * request lifecycle is automatically attributed to the user.
+ *
+ * No-op when Sentry isn't initialised (no DSN). Wallet is lower-cased
+ * so it matches what the web client tags.
+ */
+export function setSentryWallet(wallet: string | null | undefined): void {
+  if (!initialised) return;
+  if (!wallet) {
+    Sentry.setUser(null);
+    return;
+  }
+  Sentry.setUser({ id: wallet.toLowerCase() });
+}
+
 export function captureException(err: unknown, context?: Record<string, unknown>): void {
   if (!initialised) {
     console.error("[error]", err, context);

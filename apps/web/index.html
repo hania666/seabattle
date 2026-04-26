@@ -2,6 +2,27 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Content-Security-Policy (Phase 8.10). The matching frame-ancestors,
+      X-Frame-Options, and HSTS live in `public/_headers` because they
+      can only be set as HTTP headers, not as a meta tag.
+
+      Allow-list rationale:
+        - script-src 'self'                : Vite emits hashed JS we ship; no inline scripts.
+        - style-src ... 'unsafe-inline'    : Tailwind/JIT inserts <style> at runtime; required.
+        - font-src https://fonts.gstatic.com: Google Fonts (Inter, Space Grotesk).
+        - connect-src 'self' https: wss:    : viem RPC + socket.io + Sentry ingest. Tightened
+                                              further once we settle the final RPC/Sentry hosts
+                                              in production.
+        - frame-src https:                  : AGW sign-in popup iframe lives on a Privy/Abstract host.
+        - worker-src blob:                  : viem may spawn a web worker for hashing.
+        - object-src 'none'                 : no plugins / no Flash.
+        - base-uri 'self'                   : prevents <base href> hijack.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: wss: ws:; frame-src https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';"
+    />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SeaBattle — Web3 Battleship on Abstract</title>
