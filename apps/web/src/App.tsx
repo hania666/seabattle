@@ -5,6 +5,7 @@ import { shortAddress } from "./lib/format";
 import { Splash } from "./features/splash/Splash";
 import { splashSeen } from "./features/splash/splashState";
 import { Hud } from "./components/Hud";
+import { SignInButton } from "./components/SignInButton";
 import { SettingsModal } from "./components/SettingsModal";
 import { AchievementToastBridge } from "./features/profile/AchievementToastBridge";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
@@ -136,6 +137,7 @@ function AppInner() {
             >
               {t("nav.profile")}
             </button>
+            <SignInButton />
             {isConnected ? (
               <button
                 type="button"

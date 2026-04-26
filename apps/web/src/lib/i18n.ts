@@ -36,6 +36,8 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "nav.settings": "Settings",
     "nav.connect": "Connect",
     "nav.disconnect": "Disconnect",
+    "auth.signIn": "Sign in",
+    "auth.signingIn": "Signing in…",
 
     // Home
     "home.title1": "SEA",
@@ -265,6 +267,8 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "nav.settings": "Настройки",
     "nav.connect": "Подключить",
     "nav.disconnect": "Отключить",
+    "auth.signIn": "Войти",
+    "auth.signingIn": "Подпись…",
 
     "home.title1": "SEA",
     "home.title2": "BATTLE",
@@ -481,6 +485,8 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "nav.settings": "Налаштування",
     "nav.connect": "Підключити",
     "nav.disconnect": "Відключити",
+    "auth.signIn": "Увійти",
+    "auth.signingIn": "Підпис…",
 
     "home.title1": "SEA",
     "home.title2": "BATTLE",
