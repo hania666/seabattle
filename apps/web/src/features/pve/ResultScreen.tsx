@@ -2,6 +2,8 @@ import type { Difficulty } from "../../lib/game/types";
 import { DIFFICULTY_LABELS, DIFFICULTY_XP } from "../../lib/game/types";
 import { Button, TxLink } from "../../components/ui";
 
+type ChainStatus = "idle" | "pending" | "success" | "failed" | "skipped";
+
 interface Props {
   won: boolean;
   difficulty: Difficulty;
@@ -9,9 +11,26 @@ interface Props {
   txHash?: `0x${string}`;
   onPlayAgain: () => void;
   onHome: () => void;
+  /**
+   * On-chain settlement state for the optional `recordResult` round-trip.
+   * "skipped" means anti-cheat wasn't enabled (demo / not signed in);
+   * "failed" surfaces the server- or chain-side error so the user knows
+   * XP didn't post even though the local stats updated.
+   */
+  chainStatus?: ChainStatus;
+  chainError?: string | null;
 }
 
-export function ResultScreen({ won, difficulty, stats, txHash, onPlayAgain, onHome }: Props) {
+export function ResultScreen({
+  won,
+  difficulty,
+  stats,
+  txHash,
+  onPlayAgain,
+  onHome,
+  chainStatus = "idle",
+  chainError = null,
+}: Props) {
   const xp = won ? DIFFICULTY_XP[difficulty] : 0;
   return (
     <div className="mx-auto max-w-xl space-y-6 text-center">
@@ -42,6 +61,9 @@ export function ResultScreen({ won, difficulty, stats, txHash, onPlayAgain, onHo
         </p>
       )}
 
+      <ChainStatusBadge status={chainStatus} error={chainError} />
+
+
       <div className="flex flex-wrap justify-center gap-3">
         <Button variant="primary" size="lg" onClick={onPlayAgain} data-testid="result-play-again">
           Play again
@@ -51,6 +73,37 @@ export function ResultScreen({ won, difficulty, stats, txHash, onPlayAgain, onHo
         </Button>
       </div>
     </div>
+  );
+}
+
+function ChainStatusBadge({
+  status,
+  error,
+}: {
+  status: ChainStatus;
+  error: string | null;
+}) {
+  if (status === "idle" || status === "skipped") return null;
+  const tone =
+    status === "success"
+      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+      : status === "failed"
+        ? "border-amber-400/40 bg-amber-500/10 text-amber-200"
+        : "border-sea-400/40 bg-sea-800/60 text-sea-200";
+  const label =
+    status === "success"
+      ? "On-chain XP recorded"
+      : status === "failed"
+        ? `On-chain XP not recorded${error ? ` (${error})` : ""}`
+        : "Recording XP on chain…";
+  return (
+    <p
+      role="status"
+      data-testid="chain-status"
+      className={`mx-auto inline-block rounded-full border px-4 py-1.5 text-xs ${tone}`}
+    >
+      {label}
+    </p>
   );
 }
 
