@@ -161,18 +161,23 @@ export function tokenFor(wallet: string | undefined): string | null {
 }
 
 /**
- * Wrap `fetch` with a Bearer header from the active session. Returns 401 if
- * no session is available — callers should treat that the same way they'd
- * treat any other auth failure (re-prompt SIWE flow).
+ * Wrap `fetch` with a Bearer header from the wallet-bound session. The header
+ * is attached only when the active session matches `wallet` (case-insensitive
+ * via `tokenFor`); a stale token from a previous AGW connection is never
+ * applied to a freshly-connected different wallet. If `wallet` is undefined
+ * or has no token, the request goes out unauthenticated and the server
+ * returns 401 — callers handle that the same way they'd handle any other
+ * auth failure (re-prompt the SIWE flow).
  */
 export async function authedFetch(
+  wallet: string | undefined,
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  const session = getSession();
+  const token = tokenFor(wallet);
   const headers = new Headers(init.headers);
-  if (session) {
-    headers.set("Authorization", `Bearer ${session.token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
   return fetch(input, { ...init, headers });
 }

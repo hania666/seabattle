@@ -26,6 +26,12 @@ import {
   type AuthSession,
 } from "./auth";
 
+/** `fetch` bound to the connected wallet's JWT, or unauthenticated when none. */
+export type AuthedFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
 export interface UseAuth {
   session: AuthSession | null;
   /** Token bound to the *currently connected* wallet, or null. */
@@ -35,7 +41,12 @@ export interface UseAuth {
   error: string | null;
   signIn: () => Promise<AuthSession | null>;
   signOut: () => void;
-  authedFetch: typeof authedFetch;
+  /**
+   * Wallet-scoped wrapper around `fetch`. Attaches the Bearer header only
+   * when the stored session belongs to the currently connected address;
+   * otherwise the request goes out unauthenticated.
+   */
+  authedFetch: AuthedFetch;
 }
 
 function readActiveSession(wallet: string | undefined): AuthSession | null {
@@ -105,6 +116,11 @@ export function useAuth(): UseAuth {
     setSessionState(null);
   }, []);
 
+  const boundFetch = useCallback<AuthedFetch>(
+    (input, init) => authedFetch(address, input, init),
+    [address],
+  );
+
   return {
     session,
     token: tokenFor(address),
@@ -112,6 +128,6 @@ export function useAuth(): UseAuth {
     error,
     signIn,
     signOut,
-    authedFetch,
+    authedFetch: boundFetch,
   };
 }
