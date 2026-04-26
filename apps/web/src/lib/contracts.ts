@@ -89,4 +89,25 @@ export const botMatchAbi = [
     inputs: [{ name: "player", type: "address" }],
     outputs: [{ name: "", type: "uint32" }],
   },
+  {
+    type: "function",
+    name: "recordResult",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "matchId", type: "bytes32" },
+      { name: "won", type: "bool" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "BotMatchStarted",
+    inputs: [
+      { name: "matchId", type: "bytes32", indexed: true },
+      { name: "player", type: "address", indexed: true },
+      { name: "difficulty", type: "uint8", indexed: false },
+      { name: "fee", type: "uint256", indexed: false },
+    ],
+  },
 ] as const;

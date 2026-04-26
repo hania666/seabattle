@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { createBotMemory, pickBotShot, rememberShot, type BotMemory } from "../../lib/game/bot";
 import { randomFleet } from "../../lib/game/board";
+import { seededRandom } from "../../lib/game/seeded";
 import { allShipsSunk, fireShot, openCells, publicView } from "../../lib/game/shots";
 import { type Board, type Coord, type Difficulty } from "../../lib/game/types";
 import { DIFFICULTY_LABELS } from "../../lib/game/types";
@@ -24,12 +25,26 @@ export interface PveFinishStats {
   powerupsUsed: boolean;
   durationMs: number;
   firstSunkEmitted: boolean;
+  /**
+   * Per-shot move log in the order shots resolved. Powerup-driven shots
+   * are flattened into individual entries and radar pings are omitted
+   * (they don't reveal cells to the server). The server replays this log
+   * against the bot fleet derived from `seed` to verify a win claim.
+   */
+  moveLog: { by: "user" | "bot"; coord: [number, number]; hit: boolean }[];
 }
 
 interface Props {
   difficulty: Difficulty;
   playerBoard: Board;
   onFinished: (won: boolean, stats: PveFinishStats) => void;
+  /**
+   * Optional 32-byte hex seed from `/api/pve/start`. When provided the
+   * bot fleet is placed deterministically (`seededRandom(seed)`) so the
+   * server's replay sees the same layout. When omitted (offline / demo
+   * mode) the placement falls back to `Math.random`.
+   */
+  seed?: `0x${string}` | null;
 }
 
 type Turn = "player" | "bot";
@@ -49,11 +64,13 @@ type AimMode = "shot" | "bomb" | "radar";
 const TURN_SECONDS = 30;
 const COLS = "ABCDEFGHIJ";
 
-export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
+export function GameBoard({ difficulty, playerBoard, onFinished, seed = null }: Props) {
   const t = useT();
   const { address } = useAccount();
   const [myBoard, setMyBoard] = useState<Board>(playerBoard);
-  const [enemyBoard, setEnemyBoard] = useState<Board>(() => randomFleet());
+  const [enemyBoard, setEnemyBoard] = useState<Board>(() =>
+    randomFleet(seed ? seededRandom(seed) : undefined),
+  );
   const [turn, setTurn] = useState<Turn>("player");
   const [log, setLog] = useState<LogEntry[]>([]);
   const [playerShots, setPlayerShots] = useState(0);
@@ -71,6 +88,18 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
   const startedAt = useRef(Date.now());
   const powerupsUsed = useRef(false);
   const firstSunkEmitted = useRef(false);
+  // Source of truth for the move log we send to /api/pve/finish. Tracked
+  // in a ref because `finalize` is invoked from the same callback that
+  // queued the last `setLog`, so reading from React state would see the
+  // stale value. Radar pings are intentionally excluded (they don't
+  // resolve a cell) — only actual shots from either side go in here.
+  const moveLogRef = useRef<{ by: "user" | "bot"; coord: [number, number]; hit: boolean }[]>([]);
+  const recordMove = useCallback(
+    (by: "user" | "bot", row: number, col: number, outcome: "miss" | "hit" | "sunk") => {
+      moveLogRef.current.push({ by, coord: [row, col], hit: outcome !== "miss" });
+    },
+    [],
+  );
 
   // Drop expired FX entries — keeps the prop array tight and allows a
   // future shot at the same coord to mount a fresh animation.
@@ -116,6 +145,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
         powerupsUsed: powerupsUsed.current,
         durationMs: Date.now() - startedAt.current,
         firstSunkEmitted: firstSunkEmitted.current,
+        moveLog: moveLogRef.current.slice(),
       });
     },
     [onFinished],
@@ -189,13 +219,10 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
                 markIf(address, "firstBlood", true);
               }
             }
-            newEntries.push({
-              side: "player",
-              coord: [rr, cc],
-              outcome: res.outcome as "miss" | "hit" | "sunk",
-              powerup: "bomb",
-            });
-            pushEnemyFx(rr, cc, res.outcome as "miss" | "hit" | "sunk");
+            const outcome = res.outcome as "miss" | "hit" | "sunk";
+            newEntries.push({ side: "player", coord: [rr, cc], outcome, powerup: "bomb" });
+            recordMove("user", rr, cc, outcome);
+            pushEnemyFx(rr, cc, outcome);
           }
         }
         setEnemyBoard(board);
@@ -220,11 +247,10 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (result.outcome === "already") return;
       setEnemyBoard(result.board);
       setPlayerShots((n) => n + 1);
-      setLog((l) => [
-        ...l,
-        { side: "player", coord: [row, col], outcome: result.outcome as "miss" | "hit" | "sunk", auto },
-      ]);
-      pushEnemyFx(row, col, result.outcome as "miss" | "hit" | "sunk");
+      const outcome = result.outcome as "miss" | "hit" | "sunk";
+      setLog((l) => [...l, { side: "player", coord: [row, col], outcome, auto }]);
+      recordMove("user", row, col, outcome);
+      pushEnemyFx(row, col, outcome);
       sfx.shot();
       if (result.outcome === "miss") setTimeout(() => sfx.miss(), 120);
       else if (result.outcome === "hit") setTimeout(() => sfx.hit(), 120);
@@ -239,7 +265,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       }
       if (result.outcome === "miss") setTurn("bot");
     },
-    [turn, aim, enemyBoard, playerShots, botShots, finalize, powerups, address, fireAtCell],
+    [turn, aim, enemyBoard, playerShots, botShots, finalize, powerups, address, fireAtCell, recordMove],
   );
 
   const handlePlayerTimeout = useCallback(() => {
@@ -259,11 +285,10 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (result.outcome === "already") return;
       setMyBoard(result.board);
       setBotShots((n) => n + 1);
-      setLog((l) => [
-        ...l,
-        { side: "bot", coord: shot, outcome: result.outcome as "miss" | "hit" | "sunk" },
-      ]);
-      pushMyFx(shot[0], shot[1], result.outcome as "miss" | "hit" | "sunk");
+      const outcome = result.outcome as "miss" | "hit" | "sunk";
+      setLog((l) => [...l, { side: "bot", coord: shot, outcome }]);
+      recordMove("bot", shot[0], shot[1], outcome);
+      pushMyFx(shot[0], shot[1], outcome);
       if (result.outcome === "miss") sfx.miss();
       else if (result.outcome === "hit") sfx.hit();
       else if (result.outcome === "sunk") sfx.sunk();
@@ -280,7 +305,7 @@ export function GameBoard({ difficulty, playerBoard, onFinished }: Props) {
       if (result.outcome === "miss") setTurn("player");
     }, 700);
     return () => clearTimeout(timer);
-  }, [turn, myBoard, difficulty, botShots, playerShots, finalize]);
+  }, [turn, myBoard, difficulty, botShots, playerShots, finalize, recordMove]);
 
   const yourTurn = turn === "player";
 
