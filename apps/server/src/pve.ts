@@ -75,19 +75,65 @@ export interface StartedMatch {
   difficulty: Difficulty;
 }
 
+const MATCH_ID_RE = /^0x[0-9a-fA-F]{64}$/;
+
+export function parseChainMatchId(input: unknown): `0x${string}` {
+  if (typeof input !== "string" || !MATCH_ID_RE.test(input)) {
+    throw new PveError(400, "bad_match_id");
+  }
+  return input.toLowerCase() as `0x${string}`;
+}
+
+/**
+ * Allocate a server-side seed for an on-chain match. The `chainMatchId` is
+ * what `BotMatch.playBot()` returned — we don't generate it ourselves
+ * because the contract's `recordResult(matchId, won, signature)` only
+ * accepts a signature over the chain-issued id. The server's only
+ * contribution to identity is the `seed`, which the client uses to
+ * deterministically place the bot fleet (so we can re-derive it during
+ * `finishPveMatch` and verify the user's hits cover it).
+ *
+ * Idempotent on the chainMatchId: if the row already exists for this
+ * wallet we just return the existing seed (handles client-side retries).
+ * If it exists for someone else, that's a 403.
+ */
 export async function startPveMatch(
   rawWallet: string,
   difficulty: Difficulty,
+  chainMatchId: `0x${string}`,
 ): Promise<StartedMatch> {
   const wallet = normaliseWallet(rawWallet);
-  const matchId = randomBytes32Hex();
   const seed = randomBytes32Hex();
-  await query(
+  // INSERT ... ON CONFLICT DO NOTHING + RETURNING gives us the new row only
+  // when we actually inserted; on conflict we fall back to a SELECT to
+  // recover the existing seed.
+  const inserted = await query<{ seed: string; host_wallet: string; status: string }>(
     `INSERT INTO matches (id, mode, difficulty, host_wallet, seed, status)
-     VALUES ($1, 'pve', $2, $3, $4, 'in_progress')`,
-    [matchId, difficulty, wallet, seed],
+     VALUES ($1, 'pve', $2, $3, $4, 'in_progress')
+     ON CONFLICT (id) DO NOTHING
+     RETURNING seed, host_wallet, status`,
+    [chainMatchId, difficulty, wallet, seed],
   );
-  return { matchId, seed, difficulty };
+  if (inserted[0]) {
+    return { matchId: chainMatchId, seed: inserted[0].seed as `0x${string}`, difficulty };
+  }
+  const existing = await query<{ seed: string; host_wallet: string; status: string }>(
+    `SELECT seed, host_wallet, status FROM matches WHERE id = $1`,
+    [chainMatchId],
+  );
+  const row = existing[0];
+  if (!row) {
+    // Vanishingly unlikely (insert returned no row but select also empty);
+    // surface as a 500 so the client can retry.
+    throw new PveError(500, "start_race");
+  }
+  if (row.host_wallet !== wallet) {
+    throw new PveError(403, "wallet_mismatch");
+  }
+  if (row.status !== "in_progress") {
+    throw new PveError(409, "match_already_settled");
+  }
+  return { matchId: chainMatchId, seed: row.seed as `0x${string}`, difficulty };
 }
 
 export interface FinishInput {

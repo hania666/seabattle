@@ -28,6 +28,7 @@ import {
 } from "./stats";
 import {
   finishPveMatch,
+  parseChainMatchId,
   parseDifficulty,
   PveError,
   startPveMatch,
@@ -168,11 +169,19 @@ if (authEnv) {
    */
   /**
    * POST /api/pve/start
-   * Body: { difficulty: "easy"|"normal"|"hard" }
+   * Body: { matchId: bytes32-hex, difficulty: "easy"|"normal"|"hard" }
    * Returns: { matchId, seed, difficulty }
    *
-   * Allocates a server-issued match. The client must seed its bot RNG with
-   * `seed` so the same fleet/decisions are reproducible on the server.
+   * `matchId` is the bytes32 returned by `BotMatch.playBot()` on the chain
+   * (the client parses it from the `BotMatchStarted` event). The server
+   * doesn't issue its own id because the contract's `recordResult` only
+   * accepts signatures over the chain-issued one. The server's
+   * contribution is the `seed` — the client uses it to deterministically
+   * place the bot fleet, and the server re-derives the same fleet during
+   * `/api/pve/finish` to verify the user's claimed hits cover it.
+   *
+   * Idempotent: calling twice with the same `matchId` returns the same
+   * `seed` so the client can safely retry on flaky network.
    */
   app.post("/api/pve/start", requireAuth(authEnv), async (req, res) => {
     if (!isDbConfigured()) {
@@ -182,8 +191,9 @@ if (authEnv) {
       return res.status(503).json({ error: "BOT_MATCH_ADDRESS not configured" });
     }
     try {
+      const matchId = parseChainMatchId(req.body?.matchId);
       const difficulty = parseDifficulty(req.body?.difficulty);
-      const out = await startPveMatch(req.wallet!, difficulty);
+      const out = await startPveMatch(req.wallet!, difficulty, matchId);
       return res.json(out);
     } catch (e) {
       if (e instanceof PveError) {

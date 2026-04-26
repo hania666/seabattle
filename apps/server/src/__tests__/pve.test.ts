@@ -1,10 +1,39 @@
 import { describe, expect, it } from "vitest";
 import {
   MoveLogValidationError,
+  parseChainMatchId,
   parseDifficulty,
   parseMoveLog,
   PveError,
 } from "../pve";
+
+describe("parseChainMatchId", () => {
+  it("accepts a well-formed bytes32 hex", () => {
+    const id = `0x${"a".repeat(64)}`;
+    expect(parseChainMatchId(id)).toBe(id);
+  });
+
+  it("lower-cases mixed-case hex", () => {
+    const id = `0x${"ABcdef".repeat(10)}abcd`;
+    expect(parseChainMatchId(id)).toBe(id.toLowerCase());
+  });
+
+  it.each([
+    null,
+    undefined,
+    "",
+    "0x",
+    "0x123",
+    `0x${"g".repeat(64)}`,
+    `0x${"a".repeat(63)}`,
+    `0x${"a".repeat(65)}`,
+    `${"a".repeat(64)}`,
+    1,
+    {},
+  ])("rejects %p", (v) => {
+    expect(() => parseChainMatchId(v)).toThrow(PveError);
+  });
+});
 
 describe("parseDifficulty", () => {
   it("accepts the three legal values", () => {
