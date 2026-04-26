@@ -127,6 +127,23 @@ function readSession(): AuthSession | null {
   return null;
 }
 
+/**
+ * Pure read: returns the live session, or null when missing/expired. Never
+ * mutates storage or dispatches events — safe to call during render. Use
+ * this from React render paths (`tokenFor`, `readActiveSession`).
+ */
+export function peekSession(): AuthSession | null {
+  const s = readSession();
+  if (!s) return null;
+  if (s.expiresAt <= Date.now()) return null;
+  return s;
+}
+
+/**
+ * Imperative read with cleanup: returns the live session, and if the stored
+ * one is expired, clears it (which dispatches `auth:updated`). Only call
+ * from event handlers or effects — never during render.
+ */
 export function getSession(): AuthSession | null {
   const s = readSession();
   if (!s) return null;
@@ -154,7 +171,7 @@ export function clearSession(): void {
  */
 export function tokenFor(wallet: string | undefined): string | null {
   if (!wallet) return null;
-  const s = getSession();
+  const s = peekSession();
   if (!s) return null;
   if (s.wallet.toLowerCase() !== wallet.toLowerCase()) return null;
   return s.token;
@@ -174,7 +191,13 @@ export async function authedFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  const token = tokenFor(wallet);
+  // Cleanup-on-expiry path: this is a runtime call, not render, so the
+  // event-dispatching `getSession` is safe and welcome here.
+  const session = wallet ? getSession() : null;
+  const token =
+    session && session.wallet.toLowerCase() === wallet!.toLowerCase()
+      ? session.token
+      : null;
   const headers = new Headers(init.headers);
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);

@@ -11,6 +11,7 @@ import {
   buildSiweMessage,
   clearSession,
   getSession,
+  peekSession,
   setSession,
   tokenFor,
 } from "./auth";
@@ -93,6 +94,29 @@ describe("session storage", () => {
     setSession({ token: "abc", wallet, expiresAt: Date.now() + 1000 });
     clearSession();
     expect(getSession()).toBeNull();
+  });
+
+  it("peekSession returns null for expired but does NOT mutate storage", () => {
+    setSession({ token: "stale", wallet, expiresAt: Date.now() - 1 });
+    expect(peekSession()).toBeNull();
+    // Still present — peekSession is render-safe and never clears.
+    expect(sessionStorage.getItem("seabattle:siwe-session-v1")).not.toBeNull();
+  });
+
+  it("peekSession does not dispatch auth:updated on expired reads", () => {
+    setSession({ token: "stale", wallet, expiresAt: Date.now() - 1 });
+    let dispatched = 0;
+    const listener = () => {
+      dispatched++;
+    };
+    window.addEventListener("auth:updated", listener);
+    try {
+      peekSession();
+      peekSession();
+      expect(dispatched).toBe(0);
+    } finally {
+      window.removeEventListener("auth:updated", listener);
+    }
   });
 });
 

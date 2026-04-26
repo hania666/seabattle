@@ -18,7 +18,7 @@ import {
   authedFetch,
   buildSiweMessage,
   clearSession,
-  getSession,
+  peekSession,
   requestNonce,
   setSession,
   tokenFor,
@@ -50,7 +50,11 @@ export interface UseAuth {
 }
 
 function readActiveSession(wallet: string | undefined): AuthSession | null {
-  const s = getSession();
+  // `peekSession` is the side-effect-free reader, safe to call from a
+  // React `useState` initialiser or from a render-phase recompute. The
+  // imperative cleanup variant (`getSession`) lives in auth.ts and runs
+  // only from event handlers / effects.
+  const s = peekSession();
   if (!s) return null;
   if (!wallet) return null;
   return s.wallet.toLowerCase() === wallet.toLowerCase() ? s : null;
