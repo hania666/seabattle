@@ -77,8 +77,13 @@ app.get("/healthz/db", async (_req, res) => {
 const authEnv: AuthEnv | null = loadAuthEnv();
 
 function clientIp(req: express.Request): string | null {
-  const fwd = req.header("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
+  // We rely on `app.set('trust proxy', 1)` (above): express then walks the
+  // `X-Forwarded-For` chain from the right and returns the first untrusted
+  // hop in `req.ip`. That's the real client. The previous implementation
+  // took the LEFTMOST forwarded-for entry, which is attacker-controlled
+  // (any client can prepend their own X-Forwarded-For; the proxy appends
+  // theirs after) and would let an attacker bypass the sybil cap by
+  // varying the header per request. We trust express's resolution.
   return req.ip ?? null;
 }
 
