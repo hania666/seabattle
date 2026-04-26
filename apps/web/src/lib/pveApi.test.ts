@@ -43,8 +43,8 @@ describe("startPveMatch", () => {
       );
       const out = await startPveMatch(MATCH as `0x${string}`, d, fetcher);
       expect(out.difficulty).toBe(d);
-      const [, init] = fetcher.mock.calls.at(-1)!;
-      expect(JSON.parse((init as RequestInit).body as string).difficulty).toBe(name);
+      const last = fetcher.mock.calls[fetcher.mock.calls.length - 1];
+      expect(JSON.parse((last[1] as RequestInit).body as string).difficulty).toBe(name);
     }
   });
 
