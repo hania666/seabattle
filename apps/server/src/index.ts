@@ -12,6 +12,13 @@ import { registerSocketHandlers } from "./socket";
 import { signResult } from "./signer";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
 import { closePool, isDbConfigured, pingDb } from "./db";
+import {
+  AuthError,
+  issueNonce,
+  loadAuthEnv,
+  verifyAndIssueJwt,
+  type AuthEnv,
+} from "./auth";
 
 const leaderboardPath =
   process.env.LEADERBOARD_PATH ?? path.resolve(process.cwd(), "data/leaderboard.json");
@@ -42,6 +49,81 @@ app.get("/healthz/db", async (_req, res) => {
   }
   const status = await pingDb();
   return res.status(status.ok ? 200 : 503).json(status);
+});
+
+const authEnv: AuthEnv | null = loadAuthEnv();
+
+function clientIp(req: express.Request): string | null {
+  const fwd = req.header("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0]!.trim();
+  return req.ip ?? null;
+}
+
+/**
+ * POST /auth/nonce
+ * Body: { wallet: 0x... }
+ * Returns: { nonce, domain, chainId, statement, expiresInSeconds }
+ *
+ * The client builds an EIP-4361 message embedding `nonce` and `domain`,
+ * has the user sign it (no gas), then POSTs back to /auth/verify.
+ */
+app.post("/auth/nonce", async (req, res) => {
+  if (!authEnv) {
+    return res.status(503).json({ error: "auth not configured" });
+  }
+  if (!isDbConfigured()) {
+    return res.status(503).json({ error: "database not configured" });
+  }
+  const wallet = (req.body?.wallet ?? "").toString();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+    return res.status(400).json({ error: "invalid wallet" });
+  }
+  try {
+    const nonce = await issueNonce(wallet, clientIp(req));
+    return res.json({
+      nonce,
+      domain: authEnv.expectedDomain,
+      chainId: authEnv.expectedChainId,
+      statement: "Sign in to SeaBattle.",
+      expiresInSeconds: 5 * 60,
+    });
+  } catch (e) {
+    captureException(e, { route: "/auth/nonce", wallet });
+    return res.status(500).json({ error: "nonce issuance failed" });
+  }
+});
+
+/**
+ * POST /auth/verify
+ * Body: { message: string, signature: 0x... }
+ * Returns: { token, wallet, expiresAt } on success.
+ *
+ * `message` is the full EIP-4361 string the client built; `signature` is the
+ * AGW's `personal_sign` output. JWT is HS256, valid 24h.
+ */
+app.post("/auth/verify", async (req, res) => {
+  if (!authEnv) {
+    return res.status(503).json({ error: "auth not configured" });
+  }
+  if (!isDbConfigured()) {
+    return res.status(503).json({ error: "database not configured" });
+  }
+  const message = (req.body?.message ?? "").toString();
+  const signature = (req.body?.signature ?? "").toString();
+  if (!message || !/^0x[a-fA-F0-9]+$/.test(signature)) {
+    return res.status(400).json({ error: "invalid message or signature" });
+  }
+  try {
+    const out = await verifyAndIssueJwt(message, signature, authEnv, clientIp(req));
+    return res.json(out);
+  } catch (e) {
+    if (e instanceof AuthError) {
+      const status = e.code === "banned" ? 403 : 401;
+      return res.status(status).json({ error: e.message, code: e.code });
+    }
+    captureException(e, { route: "/auth/verify" });
+    return res.status(500).json({ error: "verification failed" });
+  }
 });
 
 /**
