@@ -178,6 +178,9 @@ if (authEnv) {
     if (!isDbConfigured()) {
       return res.status(503).json({ error: "database not configured" });
     }
+    if (!env.botMatchAddress) {
+      return res.status(503).json({ error: "BOT_MATCH_ADDRESS not configured" });
+    }
     try {
       const difficulty = parseDifficulty(req.body?.difficulty);
       const out = await startPveMatch(req.wallet!, difficulty);
