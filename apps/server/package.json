@@ -4,7 +4,6 @@
   "version": "0.0.0",
   "description": "Sea3Battle matchmaking + match-result signing server",
   "main": "dist/index.js",
-  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

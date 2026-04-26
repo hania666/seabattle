@@ -1,0 +1,15 @@
+# What NOT to copy into the Docker build context.
+
+node_modules
+dist
+coverage
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vscode
+.idea
+
+# Tests aren't needed in the runtime image; they're run in CI separately.
+src/__tests__

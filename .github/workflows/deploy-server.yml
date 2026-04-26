@@ -1,0 +1,39 @@
+# Deploy apps/server to Fly.io.
+#
+# Currently `workflow_dispatch` only — manual trigger from the Actions
+# tab. Once `FLY_API_TOKEN` is set in repo secrets we can flip this to
+# also trigger on push to main with apps/server/** changes by adding a
+# `push:` block. Keeping it manual for now means merging this PR can't
+# accidentally try to deploy before the secret exists.
+
+name: Deploy Server (Fly.io)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: flyctl deploy
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — require FLY_API_TOKEN
+        run: |
+          if [ -z "${{ secrets.FLY_API_TOKEN }}" ]; then
+            echo "::error::FLY_API_TOKEN is not configured in repo secrets."
+            echo "Set it via Settings → Secrets and variables → Actions, then re-run."
+            exit 1
+          fi
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --config apps/server/fly.toml apps/server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -1,0 +1,48 @@
+# Fly.io app config for the Sea3Battle server.
+#
+# This file is read by `flyctl deploy --config apps/server/fly.toml`. It
+# does NOT define secrets — those go into Fly secrets via
+# `flyctl secrets set KEY=value -a <app-name>`. See docs/DEPLOY.md for
+# the full secret list.
+#
+# `app` is intentionally a placeholder. Replace it with the real app
+# name when running `flyctl launch` for the first time:
+#   flyctl launch --copy-config --config apps/server/fly.toml \
+#                 --no-deploy --name seabattle-server
+# After launch, `flyctl deploy` uses the value below.
+
+app = "seabattle-server"
+primary_region = "fra"  # Frankfurt — same region as our Supabase
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  # Long-lived socket.io connections — keep at least one machine
+  # always running. Auto-stop would kill in-flight matches.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[mounts]]
+  source = "seabattle_data"
+  destination = "/app/data"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
