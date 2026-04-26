@@ -45,6 +45,16 @@ export type Difficulty = "easy" | "normal" | "hard";
 
 const ALLOWED_DIFFICULTIES: readonly Difficulty[] = ["easy", "normal", "hard"];
 
+/**
+ * Cap on PvE matches a single wallet may *start* in a rolling 24-hour
+ * window. Defence-in-depth on top of the contract's per-wallet
+ * `dailyLimit` — that bound covers payouts, this bound covers the matches
+ * table from being spammed with abandoned `in_progress` rows by a script.
+ * Only NEW starts count: idempotent retries for an already-allocated
+ * `matchId` aren't subject to the cap.
+ */
+export const PVE_DAILY_CAP = 50;
+
 function isDifficulty(x: unknown): x is Difficulty {
   return typeof x === "string" && ALLOWED_DIFFICULTIES.includes(x as Difficulty);
 }
@@ -104,15 +114,39 @@ export async function startPveMatch(
 ): Promise<StartedMatch> {
   const wallet = normaliseWallet(rawWallet);
   const seed = randomBytes32Hex();
-  // INSERT ... ON CONFLICT DO NOTHING + RETURNING gives us the new row only
-  // when we actually inserted; on conflict we fall back to a SELECT to
-  // recover the existing seed.
   type StartRow = {
     seed: string;
     host_wallet: string;
     status: string;
     difficulty: string;
   };
+  // Idempotent-retry path: if the row already exists, just return it
+  // without consuming a fresh slot in the daily cap. Mismatched-wallet /
+  // already-settled cases are caught below by the existing checks.
+  const existing = await query<StartRow>(
+    `SELECT seed, host_wallet, status, difficulty FROM matches WHERE id = $1`,
+    [chainMatchId],
+  );
+  if (existing.length === 0) {
+    // First time we're seeing this matchId — enforce the per-wallet
+    // daily start cap before inserting. There's a benign race (two
+    // concurrent starts could both pass the count) but at most off by
+    // one, which is acceptable for a 50-match window.
+    const capCount = await query<{ c: string }>(
+      `SELECT COUNT(*)::text AS c FROM matches
+        WHERE host_wallet = $1
+          AND mode = 'pve'
+          AND created_at > now() - INTERVAL '24 hours'`,
+      [wallet],
+    );
+    if (Number(capCount[0]?.c ?? "0") >= PVE_DAILY_CAP) {
+      throw new PveError(429, "daily_pve_cap");
+    }
+  }
+  // INSERT ... ON CONFLICT DO NOTHING + RETURNING gives us the new row only
+  // when we actually inserted; on conflict we fall back to a SELECT to
+  // recover the existing seed (above we've already populated `existing`,
+  // but a concurrent insert could land between then and now).
   const inserted = await query<StartRow>(
     `INSERT INTO matches (id, mode, difficulty, host_wallet, seed, status)
      VALUES ($1, 'pve', $2, $3, $4, 'in_progress')
@@ -122,6 +156,7 @@ export async function startPveMatch(
   );
   const row =
     inserted[0] ??
+    existing[0] ??
     (
       await query<StartRow>(
         `SELECT seed, host_wallet, status, difficulty FROM matches WHERE id = $1`,

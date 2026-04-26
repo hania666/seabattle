@@ -33,6 +33,7 @@ import {
   PveError,
   startPveMatch,
 } from "./pve";
+import { authLimiter, globalLimiter, pveStartLimiter } from "./middleware/rateLimit";
 
 const leaderboardPath =
   process.env.LEADERBOARD_PATH ?? path.resolve(process.cwd(), "data/leaderboard.json");
@@ -41,8 +42,16 @@ const leaderboard = createFileStore(leaderboardPath);
 const env = loadEnv();
 
 const app = express();
+// Behind a Cloudflare / Fly proxy `req.ip` returns the proxy's address
+// unless we tell express to trust the first hop. Without this our
+// per-IP rate limits would key every request to the same proxy IP.
+app.set("trust proxy", 1);
 app.use(cors({ origin: env.corsOrigin }));
 app.use(express.json());
+
+// Global rate limit (100 req/min per IP). Applied first so an attacker
+// can't bypass the auth/PvE limits by spamming /health.
+app.use(globalLimiter);
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -81,7 +90,7 @@ function clientIp(req: express.Request): string | null {
  * The client builds an EIP-4361 message embedding `nonce` and `domain`,
  * has the user sign it (no gas), then POSTs back to /auth/verify.
  */
-app.post("/auth/nonce", async (req, res) => {
+app.post("/auth/nonce", authLimiter, async (req, res) => {
   if (!authEnv) {
     return res.status(503).json({ error: "auth not configured" });
   }
@@ -115,7 +124,7 @@ app.post("/auth/nonce", async (req, res) => {
  * `message` is the full EIP-4361 string the client built; `signature` is the
  * AGW's `personal_sign` output. JWT is HS256, valid 24h.
  */
-app.post("/auth/verify", async (req, res) => {
+app.post("/auth/verify", authLimiter, async (req, res) => {
   if (!authEnv) {
     return res.status(503).json({ error: "auth not configured" });
   }
@@ -183,7 +192,7 @@ if (authEnv) {
    * Idempotent: calling twice with the same `matchId` returns the same
    * `seed` so the client can safely retry on flaky network.
    */
-  app.post("/api/pve/start", requireAuth(authEnv), async (req, res) => {
+  app.post("/api/pve/start", requireAuth(authEnv), pveStartLimiter, async (req, res) => {
     if (!isDbConfigured()) {
       return res.status(503).json({ error: "database not configured" });
     }
