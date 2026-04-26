@@ -1,0 +1,16 @@
+# Security headers for static hosting (Cloudflare Pages format; Netlify
+# also reads this file). Phase 8.10.
+#
+# The CSP meta tag in index.html sets policy that takes effect during
+# page parse; these HTTP headers add the directives that meta cannot
+# express (frame-ancestors, HSTS) plus a couple of belts-and-braces
+# defaults.
+
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin

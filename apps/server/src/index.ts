@@ -6,6 +6,7 @@ import http from "node:http";
 import path from "node:path";
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
@@ -46,6 +47,38 @@ const app = express();
 // unless we tell express to trust the first hop. Without this our
 // per-IP rate limits would key every request to the same proxy IP.
 app.set("trust proxy", 1);
+
+// Security headers (Phase 8.10). The API doesn't render HTML so a real
+// CSP would be redundant — `script-src 'none'` shuts the door on JSON
+// responses being interpreted as scripts via prototype-pollution-style
+// abuse. Helmet's other defaults (HSTS, X-Content-Type-Options,
+// Referrer-Policy, X-Frame-Options DENY, X-DNS-Prefetch-Control off,
+// origin-agent-cluster, X-Download-Options, X-Permitted-Cross-Domain-
+// Policies, Cross-Origin-Resource-Policy same-origin) are kept on.
+//
+// HSTS is only meaningful behind TLS, but it's harmless on plaintext
+// (browser ignores it); turning it on now means we don't forget once
+// we're in front of a domain.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        "default-src": ["'none'"],
+        "script-src": ["'none'"],
+        "frame-ancestors": ["'none'"],
+        "base-uri": ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    strictTransportSecurity: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+  }),
+);
+
 app.use(cors({ origin: env.corsOrigin }));
 app.use(express.json());
 

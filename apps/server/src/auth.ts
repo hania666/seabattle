@@ -34,6 +34,7 @@ import {
   recordAudit,
 } from "./db";
 import { linkIpToWallet, wouldExceedSybilCap } from "./sybil";
+import { setSentryWallet } from "./sentry";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -270,6 +271,11 @@ export function requireAuth(env: AuthEnv): RequestHandler {
     try {
       const claims = verifyJwt(m[1], env.jwtSecret);
       req.wallet = normaliseWallet(claims.sub);
+      // Tag this request's Sentry scope with the wallet so any error
+      // captured downstream (route handler, captureException calls)
+      // gets the wallet attached automatically. Per-request isolation
+      // is provided by Sentry's async-context propagation in @sentry/node.
+      setSentryWallet(req.wallet);
       next();
     } catch {
       res.status(401).json({ error: "invalid or expired token" });
