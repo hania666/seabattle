@@ -24,7 +24,34 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     // Branding
     "brand.name": "SeaBattle",
     "brand.tagline": "Stake · Play · Claim",
-    "brand.era": "Pre-alpha · Abstract Testnet",
+    "brand.era": "Closed Beta · Abstract Testnet",
+
+    // Closed-beta banner
+    "beta.badge": "Closed Beta · Testnet",
+    "beta.copy": "Abstract Sepolia testnet — no real money, balances may be reset.",
+    "beta.banner.aria": "Closed beta announcement",
+    "beta.dismiss.aria": "Dismiss",
+
+    // Network mismatch prompt
+    "network.wrong": "Wrong network — switch to {{chain}} to play.",
+    "network.switch": "Switch network",
+    "network.switching": "Switching…",
+
+    // Bug-report modal
+    "nav.feedback": "Report a bug",
+    "feedback.title": "Report a bug",
+    "feedback.subtitle": "Tell us what happened. We'll follow up if you leave an email.",
+    "feedback.message.label": "What went wrong?",
+    "feedback.message.placeholder": "Describe the steps and what you expected to happen…",
+    "feedback.email.label": "Email",
+    "feedback.email.optional": "(optional)",
+    "feedback.attached.wallet": "Attached: wallet {{address}}",
+    "feedback.success": "Thanks — we got it.",
+    "feedback.error": "Couldn't send. Try again in a moment.",
+    "feedback.cancel": "Cancel",
+    "feedback.submit": "Send",
+    "feedback.sending": "Sending…",
+    "feedback.close": "Close",
 
     // Nav / header
     "nav.home": "Home",
@@ -256,7 +283,31 @@ const dictionaries: Record<Lang, Record<string, string>> = {
   ru: {
     "brand.name": "SeaBattle",
     "brand.tagline": "Ставка · Игра · Клейм",
-    "brand.era": "Пре-альфа · Abstract Testnet",
+    "brand.era": "Закрытая бета · Abstract Testnet",
+
+    "beta.badge": "Закрытая бета · Testnet",
+    "beta.copy": "Abstract Sepolia testnet — реальных денег нет, балансы могут сброситься.",
+    "beta.banner.aria": "Уведомление о закрытой бете",
+    "beta.dismiss.aria": "Скрыть",
+
+    "network.wrong": "Неверная сеть — переключитесь на {{chain}}, чтобы играть.",
+    "network.switch": "Переключить сеть",
+    "network.switching": "Переключаем…",
+
+    "nav.feedback": "Сообщить о баге",
+    "feedback.title": "Сообщить о баге",
+    "feedback.subtitle": "Расскажите, что случилось. Если оставите email — ответим.",
+    "feedback.message.label": "Что пошло не так?",
+    "feedback.message.placeholder": "Опишите шаги и что вы ожидали увидеть…",
+    "feedback.email.label": "Email",
+    "feedback.email.optional": "(необязательно)",
+    "feedback.attached.wallet": "Прикреплено: кошелёк {{address}}",
+    "feedback.success": "Спасибо — получили.",
+    "feedback.error": "Не получилось отправить. Попробуйте позже.",
+    "feedback.cancel": "Отмена",
+    "feedback.submit": "Отправить",
+    "feedback.sending": "Отправляем…",
+    "feedback.close": "Закрыть",
 
     "nav.home": "Главная",
     "nav.pve": "Играть с ботом",
@@ -474,7 +525,31 @@ const dictionaries: Record<Lang, Record<string, string>> = {
   uk: {
     "brand.name": "SeaBattle",
     "brand.tagline": "Ставка · Гра · Клейм",
-    "brand.era": "Пре-альфа · Abstract Testnet",
+    "brand.era": "Закрита бета · Abstract Testnet",
+
+    "beta.badge": "Закрита бета · Testnet",
+    "beta.copy": "Abstract Sepolia testnet — реальних грошей немає, баланси можуть скинутись.",
+    "beta.banner.aria": "Сповіщення про закриту бету",
+    "beta.dismiss.aria": "Сховати",
+
+    "network.wrong": "Неправильна мережа — перейдіть на {{chain}}, щоб грати.",
+    "network.switch": "Перемкнути мережу",
+    "network.switching": "Перемикаємо…",
+
+    "nav.feedback": "Повідомити про баг",
+    "feedback.title": "Повідомити про баг",
+    "feedback.subtitle": "Розкажіть, що сталося. Якщо залишите email — відповімо.",
+    "feedback.message.label": "Що пішло не так?",
+    "feedback.message.placeholder": "Опишіть кроки та що ви очікували побачити…",
+    "feedback.email.label": "Email",
+    "feedback.email.optional": "(необов'язково)",
+    "feedback.attached.wallet": "Додано: гаманець {{address}}",
+    "feedback.success": "Дякуємо — отримали.",
+    "feedback.error": "Не вдалося надіслати. Спробуйте пізніше.",
+    "feedback.cancel": "Скасувати",
+    "feedback.submit": "Надіслати",
+    "feedback.sending": "Надсилаємо…",
+    "feedback.close": "Закрити",
 
     "nav.home": "Головна",
     "nav.pve": "Грати з ботом",
