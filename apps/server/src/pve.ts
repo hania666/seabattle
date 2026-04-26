@@ -220,39 +220,69 @@ export function parseMoveLog(input: unknown): MoveLogEntry[] {
 }
 
 /**
- * Verify the user's claimed result against the bot fleet derived from the
- * stored seed. Throws `PveError("400", "win_unverified")` if the user
- * claims a win but their hits don't cover the bot fleet.
+ * Walk the move log step-by-step against the seeded bot fleet and the
+ * user-submitted fleet, validating each shot AND the implied win/loss
+ * outcome.
+ *
+ * Rules enforced:
+ *   - Every user shot's `hit` flag must match whether the cell is on a
+ *     bot ship. Mismatch ⇒ `phantom_hit` (claimed hit, no ship) or
+ *     `missed_actual_ship` (claimed miss, but ship is there).
+ *   - Same for bot shots against the user fleet ⇒ `bot_phantom_hit` /
+ *     `bot_missed_actual_ship`. This catches logs that were forged
+ *     wholesale (Phase 8.6 only checked user-side hits).
+ *   - First side to sink all 17 enemy cells wins the match. Any move
+ *     recorded after that point ⇒ `move_after_finish`.
+ *   - The claimed `won` flag must match the replayed outcome:
+ *       won=true  + bot won first  ⇒ `win_unverified`
+ *       won=true  + neither won    ⇒ `win_unverified`
+ *       won=false + user won first ⇒ `loss_unverified`
+ *     `won=false` with a partial bot lead OR neither side fully sunk is
+ *     allowed (the user gave up / disconnected — they paid the entry fee,
+ *     they lose, no signature payout matters).
  */
-function verifyWinClaim(
+export function replayMatch(
   log: MoveLogEntry[],
   botShips: PlacedShip[],
+  userShips: PlacedShip[],
   claimedWon: boolean,
 ): void {
   const botCells = new Set<string>();
-  for (const s of botShips) {
-    for (const [r, c] of s.cells) botCells.add(`${r},${c}`);
-  }
-  const userHits = new Set<string>();
+  for (const s of botShips) for (const [r, c] of s.cells) botCells.add(`${r},${c}`);
+  const userCells = new Set<string>();
+  for (const s of userShips) for (const [r, c] of s.cells) userCells.add(`${r},${c}`);
+
+  const userHitsOnBot = new Set<string>();
+  const botHitsOnUser = new Set<string>();
+  let outcome: "user_won" | "bot_won" | "in_progress" = "in_progress";
+
   for (const m of log) {
-    if (m.by !== "user") continue;
-    const key = `${m.coord[0]},${m.coord[1]}`;
-    if (m.hit && botCells.has(key)) userHits.add(key);
-    // Also catch claims of "hit" on cells with no ship — that's a forged log.
-    if (m.hit && !botCells.has(key)) {
-      throw new PveError(400, "phantom_hit");
+    if (outcome !== "in_progress") {
+      // Match was already decided on the previous move — anything after
+      // that is a forged extension, regardless of which side recorded it.
+      throw new PveError(400, "move_after_finish");
     }
-    if (!m.hit && botCells.has(key)) {
-      throw new PveError(400, "missed_actual_ship");
+    const key = `${m.coord[0]},${m.coord[1]}`;
+    if (m.by === "user") {
+      const isShip = botCells.has(key);
+      if (m.hit && !isShip) throw new PveError(400, "phantom_hit");
+      if (!m.hit && isShip) throw new PveError(400, "missed_actual_ship");
+      if (m.hit) userHitsOnBot.add(key);
+      if (userHitsOnBot.size === FLEET_TOTAL_CELLS) outcome = "user_won";
+    } else {
+      const isShip = userCells.has(key);
+      if (m.hit && !isShip) throw new PveError(400, "bot_phantom_hit");
+      if (!m.hit && isShip) throw new PveError(400, "bot_missed_actual_ship");
+      if (m.hit) botHitsOnUser.add(key);
+      if (botHitsOnUser.size === FLEET_TOTAL_CELLS) outcome = "bot_won";
     }
   }
-  const allCellsHit = userHits.size === FLEET_TOTAL_CELLS;
-  if (claimedWon && !allCellsHit) {
+
+  if (claimedWon && outcome !== "user_won") {
     throw new PveError(400, "win_unverified");
   }
-  if (!claimedWon && allCellsHit) {
-    // The user hit everything but claims a loss — let it through (rare,
-    // probably a UI bug or a test). Just audit it.
+  if (!claimedWon && outcome === "user_won") {
+    throw new PveError(400, "loss_unverified");
   }
 }
 
@@ -339,7 +369,7 @@ export async function finishPveMatch(
 
     const botShips = randomFleet(seededRandom(match.seed));
     try {
-      verifyWinClaim(log, botShips, won);
+      replayMatch(log, botShips, userShips, won);
     } catch (e) {
       if (e instanceof PveError) {
         await client.query(
