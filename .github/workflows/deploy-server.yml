@@ -23,9 +23,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pass the secret through `env:` rather than interpolating it directly
+      # into the script body. GitHub Actions evaluates `${{ }}` expressions
+      # before the shell runs, so a token containing shell metacharacters
+      # would corrupt the script. The `env` form lets shell quoting do its
+      # job. (FLY tokens are alphanumeric in practice but the anti-pattern
+      # is the same either way.)
       - name: Guard — require FLY_API_TOKEN
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          if [ -z "${{ secrets.FLY_API_TOKEN }}" ]; then
+          if [ -z "$FLY_API_TOKEN" ]; then
             echo "::error::FLY_API_TOKEN is not configured in repo secrets."
             echo "Set it via Settings → Secrets and variables → Actions, then re-run."
             exit 1
