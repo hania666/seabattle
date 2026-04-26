@@ -22,6 +22,7 @@
  *     secret rotates, all sessions invalidate.
  */
 import { randomBytes } from "node:crypto";
+import type { Request, Response, NextFunction, RequestHandler } from "express";
 import jwt, { type SignOptions, type JwtPayload } from "jsonwebtoken";
 import { SiweMessage } from "siwe";
 import { createPublicClient, http as viemHttp, type PublicClient } from "viem";
@@ -32,6 +33,12 @@ import {
   query,
   recordAudit,
 } from "./db";
+
+declare module "express-serve-static-core" {
+  interface Request {
+    wallet?: string;
+  }
+}
 
 const JWT_TTL_SECONDS = 24 * 60 * 60;
 const NONCE_BYTES = 16;
@@ -57,7 +64,9 @@ export function loadAuthEnv(): AuthEnv | null {
   return {
     jwtSecret,
     expectedDomain,
-    expectedChainId: Number(process.env.AUTH_CHAIN_ID ?? 11124),
+    expectedChainId: Number(
+      process.env.AUTH_CHAIN_ID ?? process.env.CHAIN_ID ?? 11124,
+    ),
     rpcUrl,
   };
 }
@@ -227,14 +236,6 @@ export function verifyJwt(token: string, secret: string): AppJwtPayload {
     throw new AuthError("malformed token", "invalid_message");
   }
   return decoded as AppJwtPayload;
-}
-
-import type { Request, Response, NextFunction, RequestHandler } from "express";
-
-declare module "express-serve-static-core" {
-  interface Request {
-    wallet?: string;
-  }
 }
 
 /**
