@@ -16,9 +16,16 @@ import {
   AuthError,
   issueNonce,
   loadAuthEnv,
+  requireAuth,
   verifyAndIssueJwt,
   type AuthEnv,
 } from "./auth";
+import {
+  loadStatsForWallet,
+  mergeStats,
+  parseClientStats,
+  StatsValidationError,
+} from "./stats";
 
 const leaderboardPath =
   process.env.LEADERBOARD_PATH ?? path.resolve(process.cwd(), "data/leaderboard.json");
@@ -125,6 +132,59 @@ app.post("/auth/verify", async (req, res) => {
     return res.status(500).json({ error: "verification failed" });
   }
 });
+
+/**
+ * GET /api/stats/me
+ * Returns the authenticated wallet's stats from Postgres. The JWT is the
+ * only acceptable identifier — `req.wallet` comes from `requireAuth`.
+ * Returns `{ stats: null }` if the wallet has no stats row yet (e.g. the
+ * user signed in but has never synced).
+ */
+if (authEnv) {
+  app.get("/api/stats/me", requireAuth(authEnv), async (req, res) => {
+    if (!isDbConfigured()) {
+      return res.status(503).json({ error: "database not configured" });
+    }
+    try {
+      const stats = await loadStatsForWallet(req.wallet!);
+      return res.json({ stats });
+    } catch (e) {
+      captureException(e, { route: "GET /api/stats/me", wallet: req.wallet });
+      return res.status(500).json({ error: "stats lookup failed" });
+    }
+  });
+
+  /**
+   * POST /api/stats/me/sync
+   * Body: ClientStats — counters from localStorage. Server takes
+   * `MAX(server, client)` for every counter and returns the merged row.
+   * Idempotent and replay-safe; safe to call repeatedly.
+   */
+  app.post("/api/stats/me/sync", requireAuth(authEnv), async (req, res) => {
+    if (!isDbConfigured()) {
+      return res.status(503).json({ error: "database not configured" });
+    }
+    let parsed;
+    try {
+      parsed = parseClientStats(req.body);
+    } catch (e) {
+      if (e instanceof StatsValidationError) {
+        return res.status(400).json({ error: e.message, field: e.field });
+      }
+      throw e;
+    }
+    try {
+      const merged = await mergeStats(req.wallet!, parsed);
+      return res.json({ stats: merged });
+    } catch (e) {
+      captureException(e, {
+        route: "POST /api/stats/me/sync",
+        wallet: req.wallet,
+      });
+      return res.status(500).json({ error: "stats sync failed" });
+    }
+  });
+}
 
 /**
  * POST /api/bot-result
