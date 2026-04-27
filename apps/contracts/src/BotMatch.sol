@@ -137,7 +137,12 @@ contract BotMatch is Ownable2Step, ReentrancyGuard, Pausable {
     /// @notice Open a new PvE match against the bot.
     /// @dev The match is "Pending" until the server posts a signed result via
     ///      `recordResult`. The ETH stake is immediately credited to platform fees.
-    function playBot(Difficulty difficulty) external payable whenNotPaused returns (bytes32 matchId) {
+    function playBot(Difficulty difficulty)
+        external
+        payable
+        whenNotPaused
+        returns (bytes32 matchId)
+    {
         uint256 required = entryFee[difficulty];
         if (msg.value != required) revert InvalidFee();
 
