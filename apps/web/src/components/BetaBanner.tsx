@@ -19,14 +19,20 @@ import { useT } from "../lib/i18n";
 const LS_KEY = "seabattle:beta-copy-dismissed:v1";
 
 const subscribers = new Set<() => void>();
+// In-memory fallback for environments where localStorage throws (Safari
+// private mode, third-party-cookie blockers, sandboxed iframes). Without
+// this the dismiss button would silently no-op for those users — they'd
+// click × and the copy would stay visible forever.
+let memoryDismissed = false;
 
 function readDismissed(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(LS_KEY) === "1";
+    if (window.localStorage.getItem(LS_KEY) === "1") return true;
   } catch {
-    return false;
+    /* fall through to in-memory flag */
   }
+  return memoryDismissed;
 }
 
 function emit() {
@@ -48,8 +54,10 @@ function useBetaDismissed(): [boolean, () => void] {
     try {
       window.localStorage.setItem(LS_KEY, "1");
     } catch {
-      // localStorage may be disabled (private mode) — fall back to in-memory
-      // dismissal via the subscriber list below.
+      // localStorage may be disabled (private mode) — fall back to the
+      // module-level flag that readDismissed() also consults so the dismiss
+      // sticks for the remainder of the page session even without storage.
+      memoryDismissed = true;
     }
     emit();
   };

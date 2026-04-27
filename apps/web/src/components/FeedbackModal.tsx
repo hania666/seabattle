@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { Sentry } from "../lib/sentry";
 import { useT } from "../lib/i18n";
@@ -33,6 +33,26 @@ export function FeedbackModal({ open, onClose }: FeedbackModalProps): JSX.Elemen
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
+  // Tracks the success-toast auto-close timer so we can cancel it if the
+  // user manually dismisses the modal (or it gets re-opened) before the
+  // 1.5s elapses. Without this a stale timeout from a previous submission
+  // can close a freshly re-opened modal mid-typing.
+  const closeTimerRef = useRef<number | null>(null);
+
+  function clearCloseTimer() {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
+
+  // Belt-and-braces cleanup: if the modal is unmounted or hidden via the
+  // `open` prop while a timer is still pending, kill it. handleClose covers
+  // the explicit dismissal paths; this covers everything else.
+  useEffect(() => {
+    if (!open) clearCloseTimer();
+    return clearCloseTimer;
+  }, [open]);
 
   function reset() {
     setMessage("");
@@ -41,6 +61,7 @@ export function FeedbackModal({ open, onClose }: FeedbackModalProps): JSX.Elemen
   }
 
   function handleClose() {
+    clearCloseTimer();
     reset();
     onClose();
   }
@@ -73,7 +94,11 @@ export function FeedbackModal({ open, onClose }: FeedbackModalProps): JSX.Elemen
       setStatus("ok");
       // Auto-close after a short confirmation window so the user has time to
       // see the success message but doesn't have to dismiss it manually.
-      window.setTimeout(handleClose, 1500);
+      clearCloseTimer();
+      closeTimerRef.current = window.setTimeout(() => {
+        closeTimerRef.current = null;
+        handleClose();
+      }, 1500);
       // Side-channel debug breadcrumb (no-op in production with no DSN).
       if (import.meta.env.DEV) {
         console.info("[feedback] captured", { eventId });
