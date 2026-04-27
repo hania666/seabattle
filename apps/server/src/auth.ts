@@ -327,6 +327,14 @@ export function verifyJwt(
       // problem — trying another key won't help, and re-throwing it as a
       // generic JsonWebTokenError below would mislabel the error category.
       if (e instanceof AuthError) throw e;
+      // TokenExpiredError / NotBeforeError both imply the signature
+      // verified successfully — i.e. we already found the right key — but
+      // a time-based claim failed. Trying another key would just produce
+      // a JsonWebTokenError that masks the real reason. Propagate the
+      // category by re-throwing immediately.
+      if (e instanceof jwt.TokenExpiredError || e instanceof jwt.NotBeforeError) {
+        throw e;
+      }
       lastErr = e;
     }
   }

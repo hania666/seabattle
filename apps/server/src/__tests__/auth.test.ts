@@ -167,6 +167,18 @@ describe("verifyJwt rotation ring (audit M3)", () => {
     expect(() => verifyJwt(tok, [current, previous])).toThrow();
   });
 
+  it("preserves TokenExpiredError when expired token is signed with current (first) ring secret", () => {
+    // Regression test for Devin Review feedback on PR #33: previously the
+    // loop would catch TokenExpiredError from the first key, then try the
+    // second key which threw JsonWebTokenError, overwriting the original
+    // category. Callers expecting TokenExpiredError got JsonWebTokenError.
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const tok = jwt.sign({ sub: wallet, exp: past }, current, {
+      algorithm: "HS256",
+    });
+    expect(() => verifyJwt(tok, [current, previous])).toThrow(jwt.TokenExpiredError);
+  });
+
   it("throws when the ring is empty", () => {
     const tok = jwt.sign({ sub: wallet }, current, { algorithm: "HS256" });
     expect(() => verifyJwt(tok, [])).toThrow();
