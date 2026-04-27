@@ -31,7 +31,7 @@
  */
 import { randomBytes } from "node:crypto";
 import type { Hex, PrivateKeyAccount } from "viem";
-import { normaliseWallet, query, recordAudit, withTransaction } from "./db";
+import { normaliseWallet, recordAudit, withTransaction } from "./db";
 import { signResult } from "./signer";
 import {
   FLEET_TOTAL_CELLS,
