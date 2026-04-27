@@ -120,49 +120,47 @@ export async function startPveMatch(
     status: string;
     difficulty: string;
   };
-  // Idempotent-retry path: if the row already exists, just return it
-  // without consuming a fresh slot in the daily cap. Mismatched-wallet /
-  // already-settled cases are caught below by the existing checks.
-  const existing = await query<StartRow>(
-    `SELECT seed, host_wallet, status, difficulty FROM matches WHERE id = $1`,
-    [chainMatchId],
-  );
-  if (existing.length === 0) {
-    // First time we're seeing this matchId — enforce the per-wallet
-    // daily start cap before inserting. There's a benign race (two
-    // concurrent starts could both pass the count) but at most off by
-    // one, which is acceptable for a 50-match window.
-    const capCount = await query<{ c: string }>(
-      `SELECT COUNT(*)::text AS c FROM matches
-        WHERE host_wallet = $1
-          AND mode = 'pve'
-          AND started_at > now() - INTERVAL '24 hours'`,
-      [wallet],
+  // Audit M4: the cap check + insert run inside a single transaction
+  // serialised by a per-wallet `pg_advisory_xact_lock`. Previously we
+  // did COUNT(*) and INSERT as separate statements, so two requests
+  // racing on the same wallet could both observe `count == 49` and
+  // both insert — letting an attacker squeeze a 51st match (or more)
+  // through the 50/day cap. The advisory lock keys on `hashtext(wallet)`,
+  // so different wallets don't contend with each other; same-wallet
+  // concurrent starts queue up in the DB until the leader commits.
+  // The lock is `xact`-scoped, so it's automatically released on
+  // COMMIT/ROLLBACK; no manual unlock needed even on error paths.
+  const row = await withTransaction(async (client) => {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [wallet]);
+
+    const existing = await client.query<StartRow>(
+      `SELECT seed, host_wallet, status, difficulty FROM matches WHERE id = $1`,
+      [chainMatchId],
     );
-    if (Number(capCount[0]?.c ?? "0") >= PVE_DAILY_CAP) {
-      throw new PveError(429, "daily_pve_cap");
+    if (existing.rows.length === 0) {
+      // First time seeing this matchId — enforce the per-wallet daily
+      // cap. Inside the lock this count is now exact, not racy.
+      const cap = await client.query<{ c: string }>(
+        `SELECT COUNT(*)::text AS c FROM matches
+          WHERE host_wallet = $1
+            AND mode = 'pve'
+            AND started_at > now() - INTERVAL '24 hours'`,
+        [wallet],
+      );
+      if (Number(cap.rows[0]?.c ?? "0") >= PVE_DAILY_CAP) {
+        throw new PveError(429, "daily_pve_cap");
+      }
     }
-  }
-  // INSERT ... ON CONFLICT DO NOTHING + RETURNING gives us the new row only
-  // when we actually inserted; on conflict we fall back to a SELECT to
-  // recover the existing seed (above we've already populated `existing`,
-  // but a concurrent insert could land between then and now).
-  const inserted = await query<StartRow>(
-    `INSERT INTO matches (id, mode, difficulty, host_wallet, seed, status)
-     VALUES ($1, 'pve', $2, $3, $4, 'in_progress')
-     ON CONFLICT (id) DO NOTHING
-     RETURNING seed, host_wallet, status, difficulty`,
-    [chainMatchId, difficulty, wallet, seed],
-  );
-  const row =
-    inserted[0] ??
-    existing[0] ??
-    (
-      await query<StartRow>(
-        `SELECT seed, host_wallet, status, difficulty FROM matches WHERE id = $1`,
-        [chainMatchId],
-      )
-    )[0];
+
+    const inserted = await client.query<StartRow>(
+      `INSERT INTO matches (id, mode, difficulty, host_wallet, seed, status)
+       VALUES ($1, 'pve', $2, $3, $4, 'in_progress')
+       ON CONFLICT (id) DO NOTHING
+       RETURNING seed, host_wallet, status, difficulty`,
+      [chainMatchId, difficulty, wallet, seed],
+    );
+    return inserted.rows[0] ?? existing.rows[0] ?? null;
+  });
   if (!row) {
     // Vanishingly unlikely (insert returned no row but select also empty);
     // surface as a 500 so the client can retry.

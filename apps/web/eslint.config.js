@@ -25,6 +25,9 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
+      // Audit L9: non-null assertions hide invariants from the type-checker
+      // and shift bugs to runtime. We narrow defensively instead.
+      "@typescript-eslint/no-non-null-assertion": "error",
     },
   },
 );
