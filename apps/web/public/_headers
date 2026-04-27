@@ -14,4 +14,3 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.abstract.money https://*.privy.io https://*.abs.xyz; connect-src 'self' https://seabattle-server.fly.dev wss://seabattle-server.fly.dev https://*.abstract.money https://*.privy.io wss://*.privy.io https://api.mainnet-beta.solana.com https://*.abs.xyz wss://*.abs.xyz https://*.alchemy.com https://*.infura.io; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src https://*.privy.io https://*.abs.xyz;
