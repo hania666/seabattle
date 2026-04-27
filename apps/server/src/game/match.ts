@@ -1,3 +1,4 @@
+import { keccak256, toBytes } from "viem";
 import { validateFleet, type FleetInput } from "./board";
 import { BOARD_SIZE, type Coord, type Ship, type ShotOutcome } from "./types";
 
@@ -48,7 +49,16 @@ export class Match {
     this.sides[side].fleet = res.ships;
     const bothPlaced = Boolean(this.sides.A.fleet && this.sides.B.fleet);
     if (bothPlaced && this.turn === null) {
-      this.turn = Math.random() < 0.5 ? "A" : "B";
+      // Deterministic, fair, publicly verifiable first turn (audit M7).
+      // We hash `(matchId | playerA | playerB)` and look at the LSB. Anyone
+      // can replay this from chain data alone, so we can't be accused of
+      // biasing the draw — unlike `Math.random()`, which left no audit
+      // trail and could in principle be tampered with by a malicious server
+      // operator.
+      const seed = keccak256(
+        toBytes(`${this.matchId}${this.playerA.slice(2)}${this.playerB.slice(2)}`),
+      );
+      this.turn = (BigInt(seed) & 1n) === 0n ? "A" : "B";
     }
     return { ok: true, bothPlaced };
   }
