@@ -10,7 +10,6 @@ import helmet from "helmet";
 import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
-import { signResult } from "./signer";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
 import { closePool, isDbConfigured, pingDb } from "./db";
 import {
@@ -114,7 +113,15 @@ app.get("/healthz/db", async (_req, res) => {
     return res.status(503).json({ ok: false, error: "DATABASE_URL not set" });
   }
   const status = await pingDb();
-  return res.status(status.ok ? 200 : 503).json(status);
+  if (status.ok) {
+    return res.status(200).json(status);
+  }
+  // Don't leak the raw driver error (could include hostnames or
+  // connection-string fragments). Log the detail for ops; return a
+  // sanitised code to the public.
+  console.error("[healthz] db ping failed:", status.error);
+  captureException(new Error(status.error), { route: "/healthz/db" });
+  return res.status(503).json({ ok: false, error: "db_unreachable" });
 });
 
 const authEnv: AuthEnv | null = loadAuthEnv();
@@ -155,6 +162,9 @@ app.post("/auth/nonce", authLimiter, async (req, res) => {
       nonce,
       domain: authEnv.expectedDomain,
       chainId: authEnv.expectedChainId,
+      // English-only by design — SIWE messages are signed verbatim and we
+      // need a stable string for replay/deduplication on the server side.
+      // Localising would also fragment the audit trail.
       statement: "Sign in to SeaBattle.",
       expiresInSeconds: 5 * 60,
     });
@@ -332,40 +342,22 @@ if (authEnv) {
 }
 
 /**
- * POST /api/bot-result
- * Body: { matchId: 0x..., player: 0x..., won: boolean }
- * Returns: { signature, digest, botMatchAddress, chainId }
+ * POST /api/bot-result — REMOVED (security audit C1).
  *
- * This is the PvE equivalent of `match:end`. The frontend calls this after the
- * local bot match completes to obtain a signature that `BotMatch.recordResult`
- * will accept. Since PvE is single-player, the server trusts the claimed
- * outcome today; Phase 7 can add fraud-proofs if we care.
+ * Until 2026-04-27 this route signed `(matchId, player, won)` for any caller
+ * with no auth, no rate-limit, no fleet check, no replay validator. That
+ * made it trivial to mint XP signatures for `BotMatch.recordResult` after
+ * paying only the entry fee — completely bypassing every anti-cheat layer
+ * shipped in Phase 8.6 / 8.7 / 8.8.
+ *
+ * The web client moved to `/api/pve/start` + `/api/pve/finish` (PR #24);
+ * nothing legitimate calls this path anymore. We respond 410 Gone so any
+ * stale client surfaces a clear error instead of silently failing.
  */
-app.post("/api/bot-result", async (req, res) => {
-  const { matchId, player, won } = req.body ?? {};
-  if (!/^0x[a-fA-F0-9]{64}$/.test(matchId ?? "")) {
-    return res.status(400).json({ error: "invalid matchId" });
-  }
-  if (!/^0x[a-fA-F0-9]{40}$/.test(player ?? "")) {
-    return res.status(400).json({ error: "invalid player address" });
-  }
-  if (typeof won !== "boolean") {
-    return res.status(400).json({ error: "won must be boolean" });
-  }
-  if (!env.botMatchAddress) {
-    return res.status(503).json({ error: "BOT_MATCH_ADDRESS not configured" });
-  }
-  const signature = await signResult(env.signer, {
-    chainId: env.chainId,
-    botMatchAddress: env.botMatchAddress,
-    matchId,
-    player,
-    won,
-  });
-  return res.json({
-    signature,
-    botMatchAddress: env.botMatchAddress,
-    chainId: env.chainId,
+app.post("/api/bot-result", (_req, res) => {
+  return res.status(410).json({
+    error: "endpoint removed",
+    message: "use POST /api/pve/start + POST /api/pve/finish (requires SIWE auth)",
   });
 });
 
