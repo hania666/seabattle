@@ -381,8 +381,15 @@ app.get("/api/leaderboard", async (req, res) => {
 /**
  * POST /api/leaderboard/submit — client-signed XP update. Body:
  * { address, xp, wins, losses, rankKey, nonce, signature }.
+ *
+ * Audit M2: when SIWE auth is configured we require a JWT and that the
+ * authenticated wallet matches the body's `address`. The per-entry EIP-191
+ * signature stays as defence-in-depth (and proves the wallet authorised
+ * the *specific* numbers); requireAuth additionally prevents a logged-out
+ * attacker from spamming submits with throwaway wallets, and ensures we
+ * always see the requesting IP linked to a known wallet via the JWT.
  */
-app.post("/api/leaderboard/submit", async (req, res) => {
+const leaderboardSubmit: import("express").RequestHandler = async (req, res) => {
   const body = req.body as Partial<LeaderboardEntry> & {
     nonce?: number;
     signature?: `0x${string}`;
@@ -398,6 +405,9 @@ app.post("/api/leaderboard/submit", async (req, res) => {
   ) {
     return res.status(400).json({ error: "invalid payload" });
   }
+  if (req.wallet && req.wallet !== body.address.toLowerCase()) {
+    return res.status(403).json({ error: "address does not match auth token" });
+  }
   try {
     const entry = await leaderboard.submit({
       address: body.address as `0x${string}`,
@@ -412,7 +422,13 @@ app.post("/api/leaderboard/submit", async (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: (e as Error).message });
   }
-});
+};
+if (authEnv) {
+  app.post("/api/leaderboard/submit", requireAuth(authEnv), leaderboardSubmit);
+} else {
+  // Dev / unauthed deployments fall back to the legacy signature-only path.
+  app.post("/api/leaderboard/submit", leaderboardSubmit);
+}
 
 Sentry.setupExpressErrorHandler(app);
 
@@ -421,7 +437,7 @@ const io = new SocketIOServer(server, {
   cors: { origin: env.corsOrigin },
 });
 
-registerSocketHandlers(io, env);
+registerSocketHandlers(io, env, authEnv);
 
 process.on("unhandledRejection", (reason) => {
   captureException(reason, { source: "unhandledRejection" });

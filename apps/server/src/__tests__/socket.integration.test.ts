@@ -38,7 +38,7 @@ async function startHarness(): Promise<Harness> {
     botMatchAddress: null,
     signer: privateKeyToAccount(TEST_KEY),
   };
-  registerSocketHandlers(io, env);
+  registerSocketHandlers(io, env, null);
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const { port } = server.address() as AddressInfo;
   return {

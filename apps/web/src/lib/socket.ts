@@ -53,10 +53,19 @@ export interface ClientToServerEvents {
 
 export type PvpSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
-export function createPvpSocket(): PvpSocket {
+/**
+ * Build a PvP socket. When `token` is supplied (the SIWE JWT for the
+ * connected wallet) it is attached to the handshake; the server (audit H5)
+ * rejects the connection if the token is missing/expired/forged or if the
+ * subsequent `queue:join` claims a different address. Pass `null` for dev /
+ * unauthed deployments — the server falls back to the legacy permissive
+ * path in that mode.
+ */
+export function createPvpSocket(token: string | null = null): PvpSocket {
   return io(SERVER_URL, {
     autoConnect: false,
     transports: ["websocket"],
     forceNew: true,
+    auth: token ? { token } : undefined,
   });
 }

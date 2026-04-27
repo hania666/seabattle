@@ -46,7 +46,19 @@ const JWT_TTL_SECONDS = 24 * 60 * 60;
 const NONCE_BYTES = 16;
 
 export interface AuthEnv {
+  /** Current signing secret (used for *new* JWTs). */
   jwtSecret: string;
+  /**
+   * Verification secrets, in priority order. Always includes `jwtSecret`
+   * as element 0; subsequent entries are previous secrets accepted only
+   * for verification during rotation (audit M3). When you rotate:
+   *   1. Set JWT_SECRET to the NEW secret, JWT_SECRET_PREVIOUS to the OLD
+   *      secret, and redeploy.
+   *   2. Wait for `JWT_TTL_SECONDS` (24h) so all old tokens expire.
+   *   3. Drop JWT_SECRET_PREVIOUS and redeploy.
+   * Multiple comma-separated entries supported for chained rotations.
+   */
+  jwtVerifySecrets: readonly string[];
   /** The exact `domain` clients must sign (e.g. `seabattle.xyz`). */
   expectedDomain: string;
   /** The chain id we accept. SIWE messages on other chains are rejected. */
@@ -63,8 +75,31 @@ export function loadAuthEnv(): AuthEnv | null {
   if (jwtSecret.length < 32) {
     throw new Error("JWT_SECRET must be at least 32 characters");
   }
+  // Parse the rotation ring. Each previous secret must also be ≥32 chars
+  // so we don't accidentally accept tokens signed with a weak / leaked
+  // shorter key.
+  const previous = (process.env.JWT_SECRET_PREVIOUS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  for (const p of previous) {
+    if (p.length < 32) {
+      throw new Error("each JWT_SECRET_PREVIOUS entry must be at least 32 characters");
+    }
+  }
+  // De-dup so an operator who accidentally sets JWT_SECRET_PREVIOUS=$JWT_SECRET
+  // doesn't cause us to verify with the same key twice.
+  const seen = new Set<string>();
+  const verify: string[] = [];
+  for (const s of [jwtSecret, ...previous]) {
+    if (!seen.has(s)) {
+      seen.add(s);
+      verify.push(s);
+    }
+  }
   return {
     jwtSecret,
+    jwtVerifySecrets: verify,
     expectedDomain,
     expectedChainId: Number(
       process.env.AUTH_CHAIN_ID ?? process.env.CHAIN_ID ?? 11124,
@@ -182,11 +217,28 @@ export async function verifyAndIssueJwt(
     throw new AuthError("nonce wallet mismatch", "wallet_mismatch");
   }
 
-  if (parsed.expirationTime) {
-    const exp = Date.parse(parsed.expirationTime);
-    if (Number.isFinite(exp) && exp < Date.now()) {
-      throw new AuthError("SIWE message expired", "expired");
-    }
+  // Audit M1: SIWE `expirationTime` is now REQUIRED. Without an explicit
+  // expiry the signed message has unbounded lifetime; if a client (or a
+  // browser extension, etc.) replays a captured signature against us
+  // months later we'd happily mint a fresh JWT. The nonce check above
+  // already prevents replay against the *same* server, but a leaked
+  // signature gives the holder one shot they can use against any
+  // newly-spawned nonce of theirs — forcing the client to commit to an
+  // expiration when signing slams that window shut.
+  if (!parsed.expirationTime) {
+    throw new AuthError("SIWE message must include expirationTime", "expired");
+  }
+  const exp = Date.parse(parsed.expirationTime);
+  if (!Number.isFinite(exp)) {
+    throw new AuthError("SIWE expirationTime is not a valid date", "expired");
+  }
+  if (exp < Date.now()) {
+    throw new AuthError("SIWE message expired", "expired");
+  }
+  // Cap the lifetime: we don't want a client to sign a message valid for
+  // 10 years. 1 hour is generous for a sign-in flow.
+  if (exp > Date.now() + 60 * 60 * 1000) {
+    throw new AuthError("SIWE expirationTime is too far in the future", "expired");
   }
 
   const client = getPublicClient(env.rpcUrl);
@@ -248,12 +300,47 @@ function signJwt(payload: AppJwtPayload, secret: string, opts: SignOptions = {})
   return jwt.sign(payload, secret, { algorithm: "HS256", ...opts });
 }
 
-export function verifyJwt(token: string, secret: string): AppJwtPayload {
-  const decoded = jwt.verify(token, secret, { algorithms: ["HS256"] });
-  if (typeof decoded === "string" || typeof decoded.sub !== "string") {
-    throw new AuthError("malformed token", "invalid_message");
+/**
+ * Verify a JWT against either a single secret or a rotation ring. We accept
+ * a string (legacy / tests) or a non-empty array of secrets; the token is
+ * valid if **any** secret in the ring verifies it. We do not leak which
+ * secret matched.
+ */
+export function verifyJwt(
+  token: string,
+  secretOrRing: string | readonly string[],
+): AppJwtPayload {
+  const secrets = typeof secretOrRing === "string" ? [secretOrRing] : secretOrRing;
+  if (secrets.length === 0) {
+    throw new AuthError("no jwt verification secrets configured", "invalid_message");
   }
-  return decoded as AppJwtPayload;
+  let lastErr: unknown;
+  for (const secret of secrets) {
+    try {
+      const decoded = jwt.verify(token, secret, { algorithms: ["HS256"] });
+      if (typeof decoded === "string" || typeof decoded.sub !== "string") {
+        throw new AuthError("malformed token", "invalid_message");
+      }
+      return decoded as AppJwtPayload;
+    } catch (e) {
+      // A signature-valid-but-payload-malformed token is a structural
+      // problem — trying another key won't help, and re-throwing it as a
+      // generic JsonWebTokenError below would mislabel the error category.
+      if (e instanceof AuthError) throw e;
+      // TokenExpiredError / NotBeforeError both imply the signature
+      // verified successfully — i.e. we already found the right key — but
+      // a time-based claim failed. Trying another key would just produce
+      // a JsonWebTokenError that masks the real reason. Propagate the
+      // category by re-throwing immediately.
+      if (e instanceof jwt.TokenExpiredError || e instanceof jwt.NotBeforeError) {
+        throw e;
+      }
+      lastErr = e;
+    }
+  }
+  // All keys failed — surface the last error so jwt.verify's category
+  // (TokenExpiredError, JsonWebTokenError) propagates to callers.
+  throw lastErr instanceof Error ? lastErr : new AuthError("invalid token", "invalid_message");
 }
 
 /**
@@ -269,7 +356,7 @@ export function requireAuth(env: AuthEnv): RequestHandler {
       return;
     }
     try {
-      const claims = verifyJwt(m[1], env.jwtSecret);
+      const claims = verifyJwt(m[1], env.jwtVerifySecrets);
       req.wallet = normaliseWallet(claims.sub);
       // Tag this request's Sentry isolation scope with the wallet so any
       // error captured downstream gets the wallet attached automatically.

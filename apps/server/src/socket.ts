@@ -1,9 +1,24 @@
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import type { Env } from "./env";
+import { type AuthEnv, verifyJwt } from "./auth";
+import { normaliseWallet } from "./db";
 import { Match, type PlayerSide } from "./game/match";
 import type { FleetInput } from "./game/board";
 import { Matchmaker, type QueueEntry } from "./matchmaking";
 import { signClaim } from "./signer";
+
+/** Per-socket data attached after JWT verification (audit H5). */
+interface SocketData {
+  /** Wallet from the verified JWT, if auth is enabled. Lower-case 0x form. */
+  wallet?: string;
+}
+
+type AuthSocket = Socket<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  Record<string, unknown>,
+  SocketData
+>;
 
 interface QueueJoinMsg {
   address: `0x${string}`;
@@ -27,7 +42,44 @@ interface ActiveMatch {
   sockets: Record<PlayerSide, string>;
 }
 
-export function registerSocketHandlers(io: SocketIOServer, env: Env) {
+export function registerSocketHandlers(
+  io: SocketIOServer,
+  env: Env,
+  authEnv: AuthEnv | null,
+) {
+  // Audit H5: when SIWE is configured we require every connecting socket
+  // to present a valid JWT in `auth.token` (sent by the client via
+  // `io({ auth: { token } })`). Without this the matchmaking layer would
+  // happily queue *any* address — a single attacker could grief the queue
+  // by spoofing arbitrary wallets, watch other players' fleets across
+  // matches, or trigger result signatures from positions they don't
+  // actually control. The JWT proves the socket holder controls the
+  // wallet they claim; queue:join further enforces that the
+  // address-on-the-wire matches `socket.data.wallet`.
+  //
+  // We deliberately fail OPEN if `authEnv` is null (auth not configured)
+  // so local dev / single-binary CI doesn't need a JWT. In production
+  // `authEnv` is always non-null because `loadAuthEnv()` requires
+  // JWT_SECRET / AUTH_DOMAIN / AUTH_RPC_URL to all be set.
+  if (authEnv) {
+    io.use((socket, next) => {
+      const s = socket as AuthSocket;
+      const raw =
+        (s.handshake.auth as { token?: unknown } | undefined)?.token;
+      const token = typeof raw === "string" ? raw : null;
+      if (!token) {
+        return next(new Error("missing token"));
+      }
+      try {
+        const claims = verifyJwt(token, authEnv.jwtVerifySecrets);
+        s.data.wallet = normaliseWallet(claims.sub);
+        next();
+      } catch {
+        next(new Error("invalid or expired token"));
+      }
+    });
+  }
+
   const matchmaker = new Matchmaker();
   const matches = new Map<string, ActiveMatch>();
 
@@ -53,6 +105,18 @@ export function registerSocketHandlers(io: SocketIOServer, env: Env) {
       }
       if (stake <= 0n) return error(socket, "stake must be positive");
       if (!/^0x[a-fA-F0-9]{40}$/.test(msg.address)) return error(socket, "invalid address");
+
+      // Audit H5: the address the client claims MUST match the wallet on
+      // the verified JWT. Otherwise a (logged-in) attacker could spoof a
+      // peer's address into our matchmaker. Skipped only when auth isn't
+      // configured (dev/CI).
+      if (authEnv) {
+        const claimed = normaliseWallet(msg.address);
+        const tokenWallet = (socket as AuthSocket).data.wallet;
+        if (tokenWallet !== claimed) {
+          return error(socket, "wallet does not match auth token");
+        }
+      }
 
       const entry: QueueEntry = {
         socketId: socket.id,

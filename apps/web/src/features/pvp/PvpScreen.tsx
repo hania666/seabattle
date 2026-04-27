@@ -3,6 +3,7 @@ import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { decodeEventLog, type Hex, type TransactionReceipt } from "viem";
 import { BATTLESHIP_LOBBY_ADDRESS, battleshipLobbyAbi } from "../../lib/contracts";
 import { createPvpSocket, type PvpSocket, type FleetCell } from "../../lib/socket";
+import { useAuth } from "../../lib/useAuth";
 import type { StakeOption } from "../../lib/pvp/stakes";
 import { STAKE_OPTIONS, findStake } from "../../lib/pvp/stakes";
 import { initialStage, reduce } from "../../lib/pvp/state";
@@ -24,6 +25,7 @@ import {
 
 export function PvpScreen({ onExit }: { onExit: () => void }) {
   const { address, isConnected } = useAccount();
+  const { token: authToken } = useAuth();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const toast = useToast();
@@ -65,7 +67,10 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
 
   const ensureSocket = useCallback((): PvpSocket => {
     if (!socketRef.current) {
-      const s = createPvpSocket();
+      // Audit H5: attach the SIWE JWT so the server can verify this socket
+      // controls the wallet it queues for. Production server requires it;
+      // dev / unauthed deployments accept null.
+      const s = createPvpSocket(authToken);
       s.on("queue:waiting", () => {
         /* already handled via stage */
       });
@@ -179,7 +184,20 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     }
     if (!socketRef.current.connected) socketRef.current.connect();
     return socketRef.current;
-  }, []);
+  }, [authToken]);
+
+  // Tear down any cached socket when the auth token changes (e.g. user
+  // signs in *after* opening the PvP screen, or the JWT refreshes). The
+  // `ensureSocket` callback baked the old token into `socket.handshake.auth`,
+  // so we must drop the existing instance and let the next ensureSocket()
+  // build a fresh one with the current credentials. Without this fix the
+  // socket from before sign-in (auth=undefined) keeps getting reused and
+  // the server keeps rejecting it. The `[]`-cleanup below is preserved so
+  // unmount still disconnects.
+  useEffect(() => {
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+  }, [authToken]);
 
   useEffect(() => {
     return () => {
