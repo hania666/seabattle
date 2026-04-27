@@ -320,4 +320,89 @@ contract BattleshipLobbyTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(serverPk, digest);
         return abi.encodePacked(r, s, v);
     }
+
+    // --- Ownable2Step (audit H1) --------------------------------------------
+
+    function test_ownable2Step_pendingOwnerMustAccept() public {
+        address newOwner = makeAddr("safe");
+        vm.prank(owner);
+        lobby.transferOwnership(newOwner);
+        // Until acceptance, the original owner is still in charge.
+        assertEq(lobby.owner(), owner);
+        assertEq(lobby.pendingOwner(), newOwner);
+
+        vm.prank(newOwner);
+        lobby.acceptOwnership();
+        assertEq(lobby.owner(), newOwner);
+        assertEq(lobby.pendingOwner(), address(0));
+    }
+
+    function test_ownable2Step_onlyPendingOwnerCanAccept() public {
+        vm.prank(owner);
+        lobby.transferOwnership(makeAddr("safe"));
+        vm.prank(rando);
+        vm.expectRevert();
+        lobby.acceptOwnership();
+    }
+
+    // --- Pausable (audit H2) ------------------------------------------------
+
+    function test_pause_blocksCreateLobby() public {
+        vm.prank(owner);
+        lobby.pause();
+        vm.prank(alice);
+        vm.expectRevert();
+        lobby.createLobby{value: 0.005 ether}();
+    }
+
+    function test_pause_blocksJoinLobby() public {
+        vm.prank(alice);
+        bytes32 matchId = lobby.createLobby{value: 0.005 ether}();
+        vm.prank(owner);
+        lobby.pause();
+        vm.prank(bob);
+        vm.expectRevert();
+        lobby.joinLobby{value: 0.005 ether}(matchId);
+    }
+
+    /// claim must NOT be gated by pause: pausing should never strand user funds.
+    function test_pause_doesNotBlockClaimWin() public {
+        bytes32 matchId = _makeActiveMatch(alice, bob, 0.005 ether);
+        vm.prank(owner);
+        lobby.pause();
+
+        bytes memory sig = _signClaim(matchId, alice);
+        uint256 before_ = alice.balance;
+        lobby.claimWin(matchId, alice, sig);
+        // payout = 0.005 * 2 - fee
+        uint256 pot = 0.005 ether * 2;
+        uint256 fee = (pot * FEE_BPS) / 10_000;
+        assertEq(alice.balance, before_ + (pot - fee));
+    }
+
+    /// timeout must NOT be gated by pause either.
+    function test_pause_doesNotBlockClaimTimeout() public {
+        vm.prank(alice);
+        bytes32 matchId = lobby.createLobby{value: 0.005 ether}();
+        vm.prank(owner);
+        lobby.pause();
+        vm.warp(block.timestamp + TIMEOUT + 1);
+        // Anyone can call.
+        lobby.claimTimeout(matchId);
+    }
+
+    function test_unpause_restoresEntries() public {
+        vm.prank(owner);
+        lobby.pause();
+        vm.prank(owner);
+        lobby.unpause();
+        vm.prank(alice);
+        lobby.createLobby{value: 0.005 ether}();
+    }
+
+    function test_pause_onlyOwner() public {
+        vm.prank(rando);
+        vm.expectRevert();
+        lobby.pause();
+    }
 }

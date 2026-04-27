@@ -2,7 +2,9 @@
 pragma solidity 0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
@@ -15,10 +17,17 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 ///         - `feeBps` is bounded to 1000 (10%) — well above the 5% spec target
 ///           but prevents accidental misconfiguration.
 ///         - `ReentrancyGuard` on every external ETH sink.
+///         - `Ownable2Step` requires an explicit `acceptOwnership()` from the
+///           pending owner, so a typo in `transferOwnership(...)` doesn't
+///           brick admin access (audit H1).
+///         - `Pausable` only gates entries (`createLobby`, `joinLobby`).
+///           In-flight settlement (`claimWin`) and refund-after-timeout
+///           (`claimTimeout`) deliberately stay live even when paused so a
+///           pause cannot freeze user funds (audit H2).
 ///         - ECDSA signatures are domain-separated with `address(this)` and
 ///           `block.chainid` so a signed result from testnet cannot be
 ///           replayed on mainnet (or a sibling deployment).
-contract BattleshipLobby is Ownable, ReentrancyGuard {
+contract BattleshipLobby is Ownable2Step, ReentrancyGuard, Pausable {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
@@ -87,6 +96,9 @@ contract BattleshipLobby is Ownable, ReentrancyGuard {
     constructor(address _serverSigner, uint256 _maxStake, uint16 _feeBps, uint32 _timeoutDuration)
         Ownable(msg.sender)
     {
+        // Ownable2Step inherits Ownable's constructor; the deployer is the
+        // initial owner and must call `transferOwnership(safe)` +
+        // `acceptOwnership()` from the multisig before mainnet handoff.
         if (_serverSigner == address(0)) revert InvalidServerSigner();
         if (_feeBps > 1_000) revert InvalidFeeBps(); // hard cap 10%
         if (_maxStake == 0) revert InvalidStake();
@@ -100,7 +112,7 @@ contract BattleshipLobby is Ownable, ReentrancyGuard {
 
     /// @notice Create a new lobby and lock the caller's stake.
     /// @return matchId Deterministic id derived from the contract, chain, and nonce.
-    function createLobby() external payable returns (bytes32 matchId) {
+    function createLobby() external payable whenNotPaused returns (bytes32 matchId) {
         if (msg.value == 0 || msg.value > maxStake) revert InvalidStake();
         matchId = keccak256(
             abi.encode(address(this), block.chainid, nextLobbyNonce++, msg.sender, block.timestamp)
@@ -116,7 +128,7 @@ contract BattleshipLobby is Ownable, ReentrancyGuard {
     }
 
     /// @notice Join an existing waiting lobby. `msg.value` must equal `stake`.
-    function joinLobby(bytes32 matchId) external payable {
+    function joinLobby(bytes32 matchId) external payable whenNotPaused {
         Lobby storage l = lobbies[matchId];
         if (l.status != LobbyStatus.Waiting) revert InvalidLobby();
         if (msg.sender == l.playerA) revert SelfJoin();
@@ -194,6 +206,17 @@ contract BattleshipLobby is Ownable, ReentrancyGuard {
         if (newSigner == address(0)) revert InvalidServerSigner();
         emit ServerSignerUpdated(serverSigner, newSigner);
         serverSigner = newSigner;
+    }
+
+    /// @notice Halt new lobbies. In-flight settlement / refunds remain live.
+    /// @dev    Use this if the server starts issuing bad signatures or an
+    ///         off-chain bug is detected. Restoring play requires `unpause`.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     function setMaxStake(uint256 newMax) external onlyOwner {
