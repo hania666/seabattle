@@ -3,6 +3,7 @@ import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { decodeEventLog, type Hex, type TransactionReceipt } from "viem";
 import { BATTLESHIP_LOBBY_ADDRESS, battleshipLobbyAbi } from "../../lib/contracts";
 import { createPvpSocket, type PvpSocket, type FleetCell } from "../../lib/socket";
+import { useAuth } from "../../lib/useAuth";
 import type { StakeOption } from "../../lib/pvp/stakes";
 import { STAKE_OPTIONS, findStake } from "../../lib/pvp/stakes";
 import { initialStage, reduce } from "../../lib/pvp/state";
@@ -24,6 +25,7 @@ import {
 
 export function PvpScreen({ onExit }: { onExit: () => void }) {
   const { address, isConnected } = useAccount();
+  const { token: authToken } = useAuth();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const toast = useToast();
@@ -65,7 +67,10 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
 
   const ensureSocket = useCallback((): PvpSocket => {
     if (!socketRef.current) {
-      const s = createPvpSocket();
+      // Audit H5: attach the SIWE JWT so the server can verify this socket
+      // controls the wallet it queues for. Production server requires it;
+      // dev / unauthed deployments accept null.
+      const s = createPvpSocket(authToken);
       s.on("queue:waiting", () => {
         /* already handled via stage */
       });
@@ -179,7 +184,7 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     }
     if (!socketRef.current.connected) socketRef.current.connect();
     return socketRef.current;
-  }, []);
+  }, [authToken]);
 
   useEffect(() => {
     return () => {

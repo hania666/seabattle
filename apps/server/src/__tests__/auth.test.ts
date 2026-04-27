@@ -17,6 +17,7 @@ import {
 
 const env: AuthEnv = {
   jwtSecret: "x".repeat(64),
+  jwtVerifySecrets: ["x".repeat(64)],
   expectedDomain: "seabattle.test",
   expectedChainId: 11124,
   rpcUrl: "http://127.0.0.1:9999",
@@ -132,5 +133,42 @@ describe("requireAuth", () => {
     });
     expect(called).toBe(true);
     expect(req.wallet).toBe("0x" + "a".repeat(40));
+  });
+});
+
+describe("verifyJwt rotation ring (audit M3)", () => {
+  const current = "current-secret-".repeat(3); // 45 chars
+  const previous = "previous-secret-".repeat(3); // 48 chars
+
+  it("accepts a token signed with the current secret", () => {
+    const tok = jwt.sign({ sub: wallet }, current, { algorithm: "HS256" });
+    const decoded = verifyJwt(tok, [current, previous]);
+    expect(decoded.sub).toBe(wallet);
+  });
+
+  it("accepts a token signed with a previous secret in the ring", () => {
+    const tok = jwt.sign({ sub: wallet }, previous, { algorithm: "HS256" });
+    const decoded = verifyJwt(tok, [current, previous]);
+    expect(decoded.sub).toBe(wallet);
+  });
+
+  it("rejects a token signed with a key not in the ring", () => {
+    const tok = jwt.sign({ sub: wallet }, "rotated-out-".repeat(4), {
+      algorithm: "HS256",
+    });
+    expect(() => verifyJwt(tok, [current, previous])).toThrow();
+  });
+
+  it("rejects expired tokens even when signed with a ring secret", () => {
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const tok = jwt.sign({ sub: wallet, exp: past }, previous, {
+      algorithm: "HS256",
+    });
+    expect(() => verifyJwt(tok, [current, previous])).toThrow();
+  });
+
+  it("throws when the ring is empty", () => {
+    const tok = jwt.sign({ sub: wallet }, current, { algorithm: "HS256" });
+    expect(() => verifyJwt(tok, [])).toThrow();
   });
 });
