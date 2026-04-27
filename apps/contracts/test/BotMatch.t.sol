@@ -274,4 +274,55 @@ contract BotMatchTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(serverPk, digest);
         return abi.encodePacked(r, s, v);
     }
+
+    // --- Ownable2Step (audit H1) --------------------------------------------
+
+    function test_ownable2Step_pendingOwnerMustAccept() public {
+        address newOwner = makeAddr("safe");
+        vm.prank(owner);
+        bot.transferOwnership(newOwner);
+        assertEq(bot.owner(), owner);
+        assertEq(bot.pendingOwner(), newOwner);
+
+        vm.prank(newOwner);
+        bot.acceptOwnership();
+        assertEq(bot.owner(), newOwner);
+        assertEq(bot.pendingOwner(), address(0));
+    }
+
+    // --- Pausable (audit H2) ------------------------------------------------
+
+    function test_pause_blocksPlayBot() public {
+        vm.prank(owner);
+        bot.pause();
+        vm.prank(alice);
+        vm.expectRevert();
+        bot.playBot{value: fees[0]}(BotMatch.Difficulty.Easy);
+    }
+
+    /// recordResult must NOT be gated by pause: an in-flight match should be
+    /// finalisable even after the owner pauses (so the player still gets XP).
+    function test_pause_doesNotBlockRecordResult() public {
+        vm.prank(alice);
+        bytes32 matchId = bot.playBot{value: fees[0]}(BotMatch.Difficulty.Easy);
+        vm.prank(owner);
+        bot.pause();
+        bytes memory sig = _signResult(matchId, alice, true);
+        bot.recordResult(matchId, true, sig);
+    }
+
+    function test_unpause_restoresPlayBot() public {
+        vm.prank(owner);
+        bot.pause();
+        vm.prank(owner);
+        bot.unpause();
+        vm.prank(alice);
+        bot.playBot{value: fees[0]}(BotMatch.Difficulty.Easy);
+    }
+
+    function test_pause_onlyOwner() public {
+        vm.prank(rando);
+        vm.expectRevert();
+        bot.pause();
+    }
 }

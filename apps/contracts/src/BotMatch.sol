@@ -2,7 +2,9 @@
 pragma solidity 0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
@@ -13,7 +15,11 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 /// @dev    Per-player usage caps (`dailyLimit`, `cooldown`) live on-chain to
 ///         resist farm bots. Server signatures are domain-separated with
 ///         `address(this)` + `block.chainid` to prevent cross-deployment replay.
-contract BotMatch is Ownable, ReentrancyGuard {
+///         `Ownable2Step` (audit H1) requires explicit `acceptOwnership()`,
+///         and `Pausable` (audit H2) only halts new matches — in-flight
+///         result recording stays live so paused matches can still be
+///         finalised on disk.
+contract BotMatch is Ownable2Step, ReentrancyGuard, Pausable {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
@@ -111,6 +117,8 @@ contract BotMatch is Ownable, ReentrancyGuard {
         uint8 _dailyLimit,
         uint32 _cooldown
     ) Ownable(msg.sender) {
+        // Ownable2Step inherits Ownable's constructor; deployer is initial
+        // owner. Transfer to multisig + acceptOwnership() before mainnet.
         if (_serverSigner == address(0)) revert InvalidServerSigner();
         if (_dailyLimit == 0) revert InvalidLimit();
         serverSigner = _serverSigner;
@@ -129,7 +137,12 @@ contract BotMatch is Ownable, ReentrancyGuard {
     /// @notice Open a new PvE match against the bot.
     /// @dev The match is "Pending" until the server posts a signed result via
     ///      `recordResult`. The ETH stake is immediately credited to platform fees.
-    function playBot(Difficulty difficulty) external payable returns (bytes32 matchId) {
+    function playBot(Difficulty difficulty)
+        external
+        payable
+        whenNotPaused
+        returns (bytes32 matchId)
+    {
         uint256 required = entryFee[difficulty];
         if (msg.value != required) revert InvalidFee();
 
@@ -237,6 +250,16 @@ contract BotMatch is Ownable, ReentrancyGuard {
         if (newSigner == address(0)) revert InvalidServerSigner();
         emit ServerSignerUpdated(serverSigner, newSigner);
         serverSigner = newSigner;
+    }
+
+    /// @notice Halt new PvE matches. In-flight `recordResult` stays live so
+    ///         already-paid matches can still be finalised.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     function setEntryFee(Difficulty difficulty, uint256 newFee) external onlyOwner {
