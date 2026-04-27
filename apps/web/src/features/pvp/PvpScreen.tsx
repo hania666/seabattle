@@ -186,6 +186,19 @@ export function PvpScreen({ onExit }: { onExit: () => void }) {
     return socketRef.current;
   }, [authToken]);
 
+  // Tear down any cached socket when the auth token changes (e.g. user
+  // signs in *after* opening the PvP screen, or the JWT refreshes). The
+  // `ensureSocket` callback baked the old token into `socket.handshake.auth`,
+  // so we must drop the existing instance and let the next ensureSocket()
+  // build a fresh one with the current credentials. Without this fix the
+  // socket from before sign-in (auth=undefined) keeps getting reused and
+  // the server keeps rejecting it. The `[]`-cleanup below is preserved so
+  // unmount still disconnects.
+  useEffect(() => {
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+  }, [authToken]);
+
   useEffect(() => {
     return () => {
       socketRef.current?.disconnect();

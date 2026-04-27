@@ -323,6 +323,10 @@ export function verifyJwt(
       }
       return decoded as AppJwtPayload;
     } catch (e) {
+      // A signature-valid-but-payload-malformed token is a structural
+      // problem — trying another key won't help, and re-throwing it as a
+      // generic JsonWebTokenError below would mislabel the error category.
+      if (e instanceof AuthError) throw e;
       lastErr = e;
     }
   }
