@@ -152,3 +152,50 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 INSERT INTO schema_migrations (version) VALUES ('001_phase8_init')
 ON CONFLICT (version) DO NOTHING;
+
+-- ===========================================================================
+-- Audit L5: retention helpers
+-- ===========================================================================
+-- We don't run pg_cron in our managed Postgres, so retention is enforced by
+-- a periodic call to the `prune_audit_data()` function below — wire it up
+-- from your cron / scheduled job runner. Defaults:
+--   * audit_log:    keep 180 days (anti-cheat investigations rarely reach
+--                   that far back, and the table can balloon if not pruned)
+--   * auth_nonces:  delete anything past `expires_at` + 1 day (we already
+--                   only verify within 5 minutes; keeping a day of expired
+--                   rows is enough to debug stuck-auth reports without
+--                   bloating the index)
+--   * ip_wallet_link: keep 90 days of last_seen (sybil view only looks at
+--                     24h, and after 90d the signal is stale anyway)
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION prune_audit_data(
+  audit_log_days     INTEGER DEFAULT 180,
+  auth_nonces_days   INTEGER DEFAULT 1,
+  ip_link_days       INTEGER DEFAULT 90
+) RETURNS TABLE (
+  pruned_audit_log     BIGINT,
+  pruned_auth_nonces   BIGINT,
+  pruned_ip_link       BIGINT
+) AS $$
+DECLARE
+  a BIGINT;
+  n BIGINT;
+  i BIGINT;
+BEGIN
+  DELETE FROM audit_log
+   WHERE created_at < now() - make_interval(days => audit_log_days);
+  GET DIAGNOSTICS a = ROW_COUNT;
+
+  DELETE FROM auth_nonces
+   WHERE expires_at < now() - make_interval(days => auth_nonces_days);
+  GET DIAGNOSTICS n = ROW_COUNT;
+
+  DELETE FROM ip_wallet_link
+   WHERE last_seen < now() - make_interval(days => ip_link_days);
+  GET DIAGNOSTICS i = ROW_COUNT;
+
+  RETURN QUERY SELECT a, n, i;
+END;
+$$ LANGUAGE plpgsql;
+COMMENT ON FUNCTION prune_audit_data(INTEGER, INTEGER, INTEGER) IS
+  'Deletes rows older than the given retention windows from audit_log, auth_nonces, ip_wallet_link. Call daily from a scheduler.';

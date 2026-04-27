@@ -16,7 +16,10 @@ export function StakeSelect({ onStart, onBack, disabled, disabledReason }: Props
   const t = useT();
   const [selected, setSelected] = useState<string>(STAKE_OPTIONS[1].id);
   const [pvpMode, setPvpMode] = useState<PvpMode>("classic");
-  const stake = STAKE_OPTIONS.find((o) => o.id === selected)!;
+  // STAKE_OPTIONS is a closed enum and `selected` is always one of its ids;
+  // the find can't actually be undefined, but we narrow defensively rather
+  // than asserting it away.
+  const stake = STAKE_OPTIONS.find((o) => o.id === selected) ?? STAKE_OPTIONS[0];
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">

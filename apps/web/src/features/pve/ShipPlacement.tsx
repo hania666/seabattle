@@ -85,7 +85,8 @@ export function ShipPlacement({ onReady, onBack }: Props) {
             const target = e.target as HTMLElement;
             const btn = target.closest<HTMLButtonElement>("[data-testid^=cell-own-]");
             if (!btn) return;
-            const [, , rStr, cStr] = btn.dataset.testid!.split("-");
+            const testid = btn.dataset.testid ?? "";
+            const [, , rStr, cStr] = testid.split("-");
             setHover({ row: Number(rStr), col: Number(cStr) });
           }}
         >

@@ -195,7 +195,7 @@ export async function authedFetch(
   // event-dispatching `getSession` is safe and welcome here.
   const session = wallet ? getSession() : null;
   const token =
-    session && session.wallet.toLowerCase() === wallet!.toLowerCase()
+    session && wallet && session.wallet.toLowerCase() === wallet.toLowerCase()
       ? session.token
       : null;
   const headers = new Headers(init.headers);
