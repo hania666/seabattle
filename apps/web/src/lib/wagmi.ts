@@ -1,11 +1,8 @@
-import { createConfig, http, injected } from "wagmi";
+import { createConfig, http } from "wagmi";
 import { abstractTestnet } from "viem/chains";
 
 export const wagmiConfig = createConfig({
   chains: [abstractTestnet],
-  connectors: [
-    injected(),
-  ],
   transports: {
     [abstractTestnet.id]: http(),
   },

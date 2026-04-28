@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
-import { useAccount, useDisconnect, useConnect } from "wagmi";
+import { useAccount, useDisconnect } from "wagmi";
 import { shortAddress } from "./lib/format";
 import { Splash } from "./features/splash/Splash";
 import { splashSeen } from "./features/splash/splashState";
@@ -52,8 +52,6 @@ function AppInner() {
   const t = useT();
   const lang = useLang();
   const { login } = useLoginWithAbstract();
-  const { connect, connectors } = useConnect();
-  const [showWalletMenu, setShowWalletMenu] = useState(false);
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const [screen, setScreen] = useState<Screen>("home");
@@ -156,37 +154,14 @@ function AppInner() {
                 <span className="hidden sm:inline"> · {t("nav.disconnect")}</span>
               </button>
             ) : (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowWalletMenu(v => !v)}
-                  className="rounded-lg bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 px-3 py-2 text-xs font-bold uppercase tracking-wide text-sea-950 shadow-glow-gold hover:shadow-[0_0_32px_rgba(250,204,21,0.55)] sm:px-4 sm:text-sm"
-                  data-testid="connect-button"
-                >
-                  {t("nav.connect")}
-                </button>
-                {showWalletMenu && (
-                  <div className="absolute right-0 top-12 z-50 flex flex-col gap-1 rounded-xl border border-sea-700/60 bg-sea-950/95 p-2 shadow-xl backdrop-blur w-52">
-                    <button
-                      type="button"
-                      onClick={() => { login(); setShowWalletMenu(false); }}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sea-100 hover:bg-sea-800/60 text-left"
-                    >
-                      🟣 Abstract Wallet (AGW)
-                    </button>
-                    {connectors.map(c => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => { connect({ connector: c }); setShowWalletMenu(false); }}
-                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sea-100 hover:bg-sea-800/60 text-left"
-                      >
-                        🦊 {c.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => login()}
+                className="rounded-lg bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 px-3 py-2 text-xs font-bold uppercase tracking-wide text-sea-950 shadow-glow-gold hover:shadow-[0_0_32px_rgba(250,204,21,0.55)] sm:px-4 sm:text-sm"
+                data-testid="connect-button"
+              >
+                {t("nav.connect")}
+              </button>
             )}
           </div>
         </header>
