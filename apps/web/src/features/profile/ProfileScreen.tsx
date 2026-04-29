@@ -1,3 +1,4 @@
+import React from "react";
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
@@ -75,6 +76,7 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
               Not connected — stats saved as "guest". Connect to track per-wallet.
             </p>
           )}
+          {isConnected && address && <ReferralLink address={address} />}
         </div>
         {!isConnected && (
           <Button variant="primary" onClick={() => login()}>
