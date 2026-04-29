@@ -3,7 +3,7 @@ import type { Hex } from "viem";
 
 export interface Env {
   port: number;
-  corsOrigin: string;
+  corsOrigin: string | string[];
   chainId: number;
   lobbyAddress: `0x${string}` | null;
   botMatchAddress: `0x${string}` | null;
@@ -37,7 +37,7 @@ export function loadEnv(): Env {
   const signer = privateKeyToAccount(readSignerKey());
   return {
     port: Number(process.env.PORT ?? 3001),
-    corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
+    corsOrigin: (process.env.CORS_ORIGIN ?? "http://localhost:5173").split(",").map(s => s.trim()).filter(Boolean),
     chainId: Number(process.env.CHAIN_ID ?? 11124), // Abstract Sepolia
     lobbyAddress: readAddress("LOBBY_ADDRESS"),
     botMatchAddress: readAddress("BOT_MATCH_ADDRESS"),
