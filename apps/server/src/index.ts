@@ -11,7 +11,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
-import { closePool, isDbConfigured, pingDb } from "./db";
+import { closePool, getPool, isDbConfigured, pingDb } from "./db";
 import {
   AuthError,
   issueNonce,
@@ -194,8 +194,19 @@ app.post("/auth/verify", authLimiter, async (req, res) => {
   if (!message || !/^0x[a-fA-F0-9]+$/.test(signature)) {
     return res.status(400).json({ error: "invalid message or signature" });
   }
+  const ref = typeof req.body?.ref === "string" ? req.body.ref.toLowerCase() : null;
   try {
     const out = await verifyAndIssueJwt(message, signature, authEnv, clientIp(req));
+    // Save referral if provided and referee is new
+    if (ref && ref !== out.wallet.toLowerCase() && /^0x[a-f0-9]{40}$/.test(ref)) {
+      const db = isDbConfigured() ? getPool() : null;
+      if (db) {
+        db.query(
+          "INSERT INTO referrals (referrer, referee) VALUES ($1, $2) ON CONFLICT (referee) DO NOTHING",
+          [ref, out.wallet.toLowerCase()]
+        ).catch(() => {}); // silent - don't block auth
+      }
+    }
     return res.json(out);
   } catch (e) {
     if (e instanceof AuthError) {

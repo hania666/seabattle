@@ -52,11 +52,12 @@ export async function requestNonce(wallet: string): Promise<NonceResponse> {
 export async function verifySignature(
   message: string,
   signature: string,
+  ref?: string,
 ): Promise<VerifyResponse> {
   const res = await fetch(`${SERVER_URL}/auth/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, signature }),
+    body: JSON.stringify({ message, signature, ...(ref ? { ref } : {}) }),
   });
   if (!res.ok) {
     let err = `verify failed: ${res.status}`;

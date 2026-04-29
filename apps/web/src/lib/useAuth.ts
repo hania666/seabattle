@@ -98,7 +98,7 @@ export function useAuth(): UseAuth {
         expirationTime: Date.now() + nonce.expiresInSeconds * 1000,
       });
       const signature = await signMessageAsync({ message });
-      const verified = await verifySignature(message, signature);
+      const verified = await verifySignature(message, signature, getRef() ?? undefined);
       const next: AuthSession = {
         token: verified.token,
         wallet: verified.wallet,
