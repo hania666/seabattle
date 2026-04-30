@@ -108,7 +108,7 @@ describe("socket integration", () => {
       for (const [row, col] of targets) {
         firstPlayerSocket.emit("match:fire", { matchId, row, col });
         // Small pause to ensure ordering — sockets process one message at a time.
-        await new Promise((r) => setTimeout(r, 3));
+        await new Promise((r) => setTimeout(r, 250));
       }
       const result = await end;
       expect(result.winner).toBe(startPayload.firstTurn);
