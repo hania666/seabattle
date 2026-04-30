@@ -141,6 +141,7 @@ export function registerSocketHandlers(
       const still = matches.get(matchId);
       if (!still) return;
       const timedOut = still.match.getTurn();
+      if (!timedOut) return;
       const loser  = timedOut === "A" ? still.match.playerA : still.match.playerB;
       const winner = timedOut === "A" ? still.match.playerB : still.match.playerA;
       void endMatch(matchId, winner, loser, "timeout");
