@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { saveRef } from "./lib/referral";
 import { useUsername } from "./lib/useUsername";
+import { useAuth } from "./lib/useAuth";
 import { UsernameModal } from "./components/UsernameModal";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { useAccount, useDisconnect } from "wagmi";
@@ -56,12 +57,15 @@ function AppInner() {
   const lang = useLang();
   const { login } = useLoginWithAbstract();
   const { address, isConnected } = useAccount();
+  const { authedFetch, session } = useAuth();
+  const { setUsername } = useUsername(session?.wallet, authedFetch);
   const { disconnect } = useDisconnect();
   const [screen, setScreen] = useState<Screen>("home");
   const [showSplash, setShowSplash] = useState(() => !splashSeen());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [legalViewer, setLegalViewer] = useState<"tos" | "privacy" | null>(null);
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
 
   // Bootstrap: run coin migration + pending inactivity decay once per
   // address. Idempotent — migrateCoins stores a flag; decay shifts the last
