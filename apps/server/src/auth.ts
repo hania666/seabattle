@@ -193,11 +193,11 @@ export async function verifyAndIssueJwt(
 
   // Atomically claim the nonce: either we mark it used here, or someone
   // else already has and we refuse the request.
-  const claim = await query<{ wallet: string; expires_at: Date }>(
+  const claim = await query<{ wallet: string; expires_at: Date; ip: string | null }>(
     `UPDATE auth_nonces
      SET used_at = now()
      WHERE nonce = $1 AND used_at IS NULL AND expires_at > now()
-     RETURNING wallet, expires_at`,
+     RETURNING wallet, expires_at, ip`,
     [parsed.nonce],
   );
   if (claim.length === 0) {
@@ -215,6 +215,16 @@ export async function verifyAndIssueJwt(
   }
   if (normaliseWallet(claim[0].wallet) !== wallet) {
     throw new AuthError("nonce wallet mismatch", "wallet_mismatch");
+  }
+  // Audit IP mismatch — warn but don't block (mobile/VPN users change IPs).
+  if (claim[0].ip && ip && claim[0].ip !== ip) {
+    void recordAudit({
+      wallet,
+      action: "siwe.nonce.ip_mismatch",
+      payload: { nonce_ip: claim[0].ip, verify_ip: ip },
+      ip,
+      severity: "warn",
+    });
   }
 
   // Audit M1: SIWE `expirationTime` is now REQUIRED. Without an explicit
