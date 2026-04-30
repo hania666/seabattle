@@ -28,8 +28,13 @@ function pairKey(a: string, b: string): string {
 }
 
 export function wouldExceedPairCap(a: string, b: string): boolean {
-  const entry = pairHistory.get(pairKey(a, b));
-  if (!entry || Date.now() - entry.windowStart > PAIR_WINDOW_MS) return false;
+  const key = pairKey(a, b);
+  const entry = pairHistory.get(key);
+  if (!entry) return false;
+  if (Date.now() - entry.windowStart > PAIR_WINDOW_MS) {
+    pairHistory.delete(key);
+    return false;
+  }
   return entry.count >= MAX_PAIRS_PER_WINDOW;
 }
 
