@@ -26,6 +26,7 @@ import {
   type AuthSession,
 } from "./auth";
 import { syncStatsAfterSignIn } from "./serverStats";
+import { getRef } from "./referral";
 
 /** `fetch` bound to the connected wallet's JWT, or unauthenticated when none. */
 export type AuthedFetch = (

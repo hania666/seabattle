@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from "react";
+import { saveRef } from "./lib/referral";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { useAccount, useDisconnect } from "wagmi";
 import { shortAddress } from "./lib/format";
@@ -63,6 +64,11 @@ function AppInner() {
   // Bootstrap: run coin migration + pending inactivity decay once per
   // address. Idempotent — migrateCoins stores a flag; decay shifts the last
   // match timestamp forward so we never double-charge.
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref) saveRef(ref);
+  }, []);
+
   useEffect(() => {
     runBootstrap(address);
     setSentryWallet(address ?? null);

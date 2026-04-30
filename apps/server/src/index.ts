@@ -11,7 +11,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
-import { closePool, getPool, getStats, isDbConfigured, normaliseWallet, pingDb } from "./db";
+import { closePool, getPool, getStats, isDbConfigured, normaliseWallet, pingDb, query } from "./db";
 import {
   AuthError,
   issueNonce,
@@ -388,6 +388,26 @@ app.get("/api/leaderboard", async (req, res) => {
     return res.status(500).json({ error: (e as Error).message });
   }
 });
+
+/**
+ * GET /api/referrals — list wallets referred by the authenticated user.
+ */
+if (authEnv) {
+  app.get("/api/referrals", requireAuth(authEnv), async (req, res) => {
+    if (!isDbConfigured()) return res.status(503).json({ error: "database not configured" });
+    try {
+      const rows = await query<{ referee: string; created_at: string }>(
+        "SELECT referee, created_at FROM referrals WHERE referrer = $1 ORDER BY created_at DESC",
+        [req.wallet!],
+      );
+      return res.json({ referrals: rows, count: rows.length });
+    } catch (e) {
+      captureException(e, { route: "GET /api/referrals" });
+      return res.status(500).json({ error: "failed to load referrals" });
+    }
+  });
+}
+
 
 /**
  * POST /api/leaderboard/submit — client-signed XP update. Body:

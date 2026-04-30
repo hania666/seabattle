@@ -22,6 +22,7 @@ import {
 } from "../../lib/rankDecay";
 import { useT } from "../../lib/i18n";
 import { AchievementGrid } from "./AchievementGrid";
+import { ReferralLink } from "./ReferralLink";
 
 interface Props {
   onExit: () => void;
