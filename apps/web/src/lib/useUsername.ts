@@ -27,7 +27,7 @@ export function useUsername(
       })
       .catch(() => setUsernameState(null))
       .finally(() => setIsLoading(false));
-  }, [wallet]);
+  }, [wallet, authedFetch]);
 
   const setUsername = useCallback(
     async (name: string): Promise<boolean> => {
