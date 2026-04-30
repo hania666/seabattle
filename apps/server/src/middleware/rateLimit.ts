@@ -23,7 +23,7 @@
  * — useful for `npm test` and for ops to flip off the limits in an
  * incident.
  */
-import rateLimit, { type Options } from "express-rate-limit";
+import rateLimit, { ipKeyGenerator, type Options } from "express-rate-limit";
 import type { Request } from "express";
 
 const ONE_MINUTE_MS = 60_000;
@@ -72,5 +72,5 @@ export const authLimiter = buildLimiter({ max: 10 });
  */
 export const pveStartLimiter = buildLimiter({
   max: 30,
-  keyGenerator: (req) => req.wallet ?? req.ip ?? "anon",
+  keyGenerator: (req) => req.wallet ?? ipKeyGenerator(req.ip ?? "anon"),
 });
