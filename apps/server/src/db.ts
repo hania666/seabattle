@@ -5,9 +5,8 @@ let pool: Pool | null = null;
 /**
  * Lazily initialise the connection pool from DATABASE_URL.
  * Supabase session-pooler URLs already contain the SSL params we need; we
- * only force `rejectUnauthorized: false` because the pooler uses an
- * Amazon-issued cert that Node's bundled CAs accept but some build
- * environments (musl/Alpine) don't trust.
+ * Alpine ca-certificates package is installed in the Dockerfile so
+ * Amazon/Supabase certs are trusted and rejectUnauthorized stays true.
  */
 export function getPool(): Pool {
   if (pool) return pool;
@@ -22,7 +21,7 @@ export function getPool(): Pool {
   const cleanUrl = stripSslMode(url);
   pool = new Pool({
     connectionString: cleanUrl,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
     max: Number(process.env.DATABASE_POOL_MAX ?? 5),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,

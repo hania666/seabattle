@@ -23,7 +23,7 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3001
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force && apk add --no-cache ca-certificates
 COPY --from=build /app/dist ./dist
 
 # Create a writable directory for the file-backed leaderboard. The path
