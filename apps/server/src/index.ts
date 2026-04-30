@@ -11,7 +11,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
-import { closePool, getPool, getStats, getUser, isDbConfigured, normaliseWallet, pingDb, query, setDisplayName } from "./db";
+import { closePool, getPool, getStats, getUser, isDbConfigured, normaliseWallet, pingDb, query, recordAudit, setDisplayName } from "./db";
 import {
   AuthError,
   issueNonce,
@@ -327,6 +327,8 @@ if (authEnv) {
   });
 
   app.post("/api/stats/me/sync", requireAuth(authEnv), async (req, res) => {
+    res.setHeader("Deprecation", "true");
+    res.setHeader("Sunset", "2026-09-01");
     if (!isDbConfigured()) {
       return res.status(503).json({ error: "database not configured" });
     }
@@ -338,6 +340,20 @@ if (authEnv) {
         return res.status(400).json({ error: e.message, field: e.field });
       }
       throw e;
+    }
+    // Audit suspiciously large single-call jumps (potential farming).
+    const suspicious =
+      (parsed.xp ?? 0) > 5000 ||
+      (parsed.pvpWins ?? 0) > 50 ||
+      (parsed.pveWins ?? 0) > 50;
+    if (suspicious) {
+      void recordAudit({
+        wallet: req.wallet!,
+        action: "stats.sync.suspicious",
+        payload: parsed as unknown as Record<string, unknown>,
+        ip: clientIp(req),
+        severity: "warn",
+      });
     }
     try {
       const merged = await mergeStats(req.wallet!, parsed);
