@@ -5,6 +5,7 @@ export interface QueueEntry {
   address: `0x${string}`;
   stake: bigint;
   matchId?: `0x${string}`;
+  enqueuedAt?: number;
 }
 
 export interface Pairing {
@@ -15,7 +16,6 @@ export interface Pairing {
 }
 
 // Anti-collusion: cap how many times the same two wallets can match per day.
-// Set high enough so friends can play, but blocks XP-farming loops.
 const PAIR_WINDOW_MS       = 24 * 60 * 60 * 1000;
 const MAX_PAIRS_PER_WINDOW = 10;
 
@@ -44,17 +44,13 @@ export function recordPair(a: string, b: string): void {
   }
 }
 
-/**
- * Simple FIFO matchmaking keyed by exact stake. First arrival for a stake
- * waits; second arrival pairs with them. Self-pairing and collusion-capped
- * pairs are skipped.
- */
 export class Matchmaker {
   private queues = new Map<string, QueueEntry[]>();
   private bySocket = new Map<string, QueueEntry>();
 
   enqueue(entry: QueueEntry): Pairing | null {
     const key = entry.stake.toString();
+    entry.enqueuedAt ??= Date.now();
     this.bySocket.set(entry.socketId, entry);
     const queue = this.queues.get(key) ?? [];
 
@@ -86,6 +82,21 @@ export class Matchmaker {
     if (!queue) return;
     const idx = queue.findIndex((e) => e.socketId === socketId);
     if (idx >= 0) queue.splice(idx, 1);
+  }
+
+  /** Returns all entries that have been waiting longer than maxWaitMs. */
+  drainStale(maxWaitMs: number): QueueEntry[] {
+    const now = Date.now();
+    const stale: QueueEntry[] = [];
+    for (const [key, queue] of this.queues) {
+      const fresh = queue.filter((e) => {
+        if (now - (e.enqueuedAt ?? now) > maxWaitMs) { stale.push(e); return false; }
+        return true;
+      });
+      this.queues.set(key, fresh);
+    }
+    for (const e of stale) this.bySocket.delete(e.socketId);
+    return stale;
   }
 
   size(stake: bigint): number {

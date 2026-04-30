@@ -68,6 +68,13 @@ export function registerSocketHandlers(
   }
 
   const matchmaker = new Matchmaker();
+
+  setInterval(() => {
+    const stale = matchmaker.drainStale(5 * 60 * 1000);
+    for (const entry of stale) {
+      io.to(entry.socketId).emit("queue:timeout", { message: "No opponent found, please try again." });
+    }
+  }, 60_000);
   const matches = new Map<string, ActiveMatch>();
   const timers  = new Map<string, NodeJS.Timeout>();
 
@@ -175,6 +182,7 @@ export function registerSocketHandlers(
         address: msg.address,
         stake,
         matchId: msg.matchId,
+        enqueuedAt: Date.now(),
       };
 
       const pairing = matchmaker.enqueue(entry);
@@ -248,6 +256,7 @@ export function registerSocketHandlers(
 
       const payload = {
         matchId: msg.matchId,
+        enqueuedAt: Date.now(),
         by: side === "A" ? active.match.playerA : active.match.playerB,
         row: msg.row,
         col: msg.col,
