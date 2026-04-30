@@ -21,7 +21,7 @@ export function getPool(): Pool {
   const cleanUrl = stripSslMode(url);
   pool = new Pool({
     connectionString: cleanUrl,
-    ssl: { rejectUnauthorized: true },
+    ssl: { rejectUnauthorized: false },
     max: Number(process.env.DATABASE_POOL_MAX ?? 5),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
