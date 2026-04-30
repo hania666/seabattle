@@ -1,5 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { saveRef } from "./lib/referral";
+import { useUsername } from "./lib/useUsername";
+import { UsernameModal } from "./components/UsernameModal";
 import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { useAccount, useDisconnect } from "wagmi";
 import { shortAddress } from "./lib/format";
@@ -96,6 +98,16 @@ function AppInner() {
         }
         onClose={() => setLegalViewer(null)}
       />
+      {showUsernameModal && (
+        <UsernameModal
+          onSave={async (name) => {
+            const ok = await setUsername(name);
+            if (ok) setShowUsernameModal(false);
+            return ok;
+          }}
+          onSkip={() => setShowUsernameModal(false)}
+        />
+      )}
       <div className="flex min-h-screen flex-col">
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-sea-800/60 bg-sea-950/70 px-4 py-3 backdrop-blur sm:px-6">
           <button

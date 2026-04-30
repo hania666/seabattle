@@ -11,7 +11,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
-import { closePool, getPool, getStats, isDbConfigured, normaliseWallet, pingDb, query } from "./db";
+import { closePool, getPool, getStats, getUser, isDbConfigured, normaliseWallet, pingDb, query, setDisplayName } from "./db";
 import {
   AuthError,
   issueNonce,
@@ -388,6 +388,54 @@ app.get("/api/leaderboard", async (req, res) => {
     return res.status(500).json({ error: (e as Error).message });
   }
 });
+
+/**
+ * GET /api/profile/me — current user profile (wallet + display_name + stats).
+ */
+if (authEnv) {
+  app.get("/api/profile/me", requireAuth(authEnv), async (req, res) => {
+    if (!isDbConfigured()) return res.status(503).json({ error: "database not configured" });
+    try {
+      const [user, stats] = await Promise.all([
+        getUser(req.wallet!),
+        getStats(req.wallet!),
+      ]);
+      return res.json({ user, stats });
+    } catch (e) {
+      captureException(e, { route: "GET /api/profile/me" });
+      return res.status(500).json({ error: "failed to load profile" });
+    }
+  });
+}
+
+/**
+ * POST /api/profile/username — set or update display name.
+ * Body: { username: string }
+ * Rules: 3-20 chars, letters/digits/underscores, must start with a letter.
+ */
+if (authEnv) {
+  app.post("/api/profile/username", requireAuth(authEnv), async (req, res) => {
+    if (!isDbConfigured()) return res.status(503).json({ error: "database not configured" });
+    const raw = (req.body?.username ?? "").toString().trim();
+    if (!/^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(raw)) {
+      return res.status(400).json({
+        error: "username must be 3-20 chars, start with a letter, letters/digits/underscores only",
+      });
+    }
+    try {
+      const user = await setDisplayName(req.wallet!, raw);
+      return res.json({ ok: true, user });
+    } catch (e: unknown) {
+      const msg = (e as Error).message ?? "";
+      if (msg.includes("unique") || msg.includes("duplicate")) {
+        return res.status(409).json({ error: "username already taken" });
+      }
+      captureException(e, { route: "POST /api/profile/username" });
+      return res.status(500).json({ error: "failed to set username" });
+    }
+  });
+}
+
 
 /**
  * GET /api/referrals — list wallets referred by the authenticated user.

@@ -214,3 +214,19 @@ export async function closePool(): Promise<void> {
     pool = null;
   }
 }
+
+export async function setDisplayName(rawWallet: string, name: string): Promise<UserRow> {
+  const wallet = normaliseWallet(rawWallet);
+  const rows = await query<UserRow>(
+    `UPDATE users SET display_name = $2 WHERE wallet = $1 RETURNING *`,
+    [wallet, name],
+  );
+  if (!rows[0]) throw new Error("user not found");
+  return rows[0];
+}
+
+export async function getUser(rawWallet: string): Promise<UserRow | null> {
+  const wallet = normaliseWallet(rawWallet);
+  const rows = await query<UserRow>(`SELECT * FROM users WHERE wallet = $1`, [wallet]);
+  return rows[0] ?? null;
+}

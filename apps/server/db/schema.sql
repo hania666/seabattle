@@ -10,8 +10,11 @@ CREATE TABLE IF NOT EXISTS users (
   banned_at        TIMESTAMPTZ,
   banned_reason    TEXT,
   ip_country       TEXT,
-  display_name     TEXT
+  display_name     TEXT,
+  CONSTRAINT users_display_name_unique UNIQUE (display_name)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_display_name_ci ON users (LOWER(display_name));
 
 -- 2. stats — coins, xp, win/loss, streaks (one row per wallet)
 CREATE TABLE IF NOT EXISTS stats (
