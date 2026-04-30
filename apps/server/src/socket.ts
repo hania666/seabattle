@@ -4,12 +4,14 @@ import { type AuthEnv, verifyJwt } from "./auth";
 import { normaliseWallet } from "./db";
 import { Match, type PlayerSide } from "./game/match";
 import type { FleetInput } from "./game/board";
-import { Matchmaker, type QueueEntry } from "./matchmaking";
+import { Matchmaker, type QueueEntry, recordPair } from "./matchmaking";
 import { signClaim } from "./signer";
 
-/** Per-socket data attached after JWT verification (audit H5). */
+const TURN_TIMEOUT_MS  = 90_000;
+const PLACE_TIMEOUT_MS = 60_000;
+const FIRE_MIN_MS      = 200;
+
 interface SocketData {
-  /** Wallet from the verified JWT, if auth is enabled. Lower-case 0x form. */
   wallet?: string;
 }
 
@@ -22,7 +24,7 @@ type AuthSocket = Socket<
 
 interface QueueJoinMsg {
   address: `0x${string}`;
-  stake: string; // wei, decimal
+  stake: string;
   matchId?: `0x${string}`;
 }
 
@@ -40,6 +42,8 @@ interface FireMsg {
 interface ActiveMatch {
   match: Match;
   sockets: Record<PlayerSide, string>;
+  placed: Set<PlayerSide>;
+  lastFireAt: Record<PlayerSide, number>;
 }
 
 export function registerSocketHandlers(
@@ -47,29 +51,12 @@ export function registerSocketHandlers(
   env: Env,
   authEnv: AuthEnv | null,
 ) {
-  // Audit H5: when SIWE is configured we require every connecting socket
-  // to present a valid JWT in `auth.token` (sent by the client via
-  // `io({ auth: { token } })`). Without this the matchmaking layer would
-  // happily queue *any* address — a single attacker could grief the queue
-  // by spoofing arbitrary wallets, watch other players' fleets across
-  // matches, or trigger result signatures from positions they don't
-  // actually control. The JWT proves the socket holder controls the
-  // wallet they claim; queue:join further enforces that the
-  // address-on-the-wire matches `socket.data.wallet`.
-  //
-  // We deliberately fail OPEN if `authEnv` is null (auth not configured)
-  // so local dev / single-binary CI doesn't need a JWT. In production
-  // `authEnv` is always non-null because `loadAuthEnv()` requires
-  // JWT_SECRET / AUTH_DOMAIN / AUTH_RPC_URL to all be set.
   if (authEnv) {
     io.use((socket, next) => {
       const s = socket as AuthSocket;
-      const raw =
-        (s.handshake.auth as { token?: unknown } | undefined)?.token;
+      const raw = (s.handshake.auth as { token?: unknown } | undefined)?.token;
       const token = typeof raw === "string" ? raw : null;
-      if (!token) {
-        return next(new Error("missing token"));
-      }
+      if (!token) return next(new Error("missing token"));
       try {
         const claims = verifyJwt(token, authEnv.jwtVerifySecrets);
         s.data.wallet = normaliseWallet(claims.sub);
@@ -82,15 +69,90 @@ export function registerSocketHandlers(
 
   const matchmaker = new Matchmaker();
   const matches = new Map<string, ActiveMatch>();
+  const timers  = new Map<string, NodeJS.Timeout>();
 
   function error(socket: Socket, message: string) {
     socket.emit("error", { message });
   }
 
-  function sideOf(match: ActiveMatch, socketId: string): PlayerSide | null {
-    if (match.sockets.A === socketId) return "A";
-    if (match.sockets.B === socketId) return "B";
+  function sideOf(active: ActiveMatch, socketId: string): PlayerSide | null {
+    if (active.sockets.A === socketId) return "A";
+    if (active.sockets.B === socketId) return "B";
     return null;
+  }
+
+  function clearTimer(matchId: string) {
+    const t = timers.get(matchId);
+    if (t) { clearTimeout(t); timers.delete(matchId); }
+  }
+
+  async function endMatch(
+    matchId: `0x${string}`,
+    winner: `0x${string}`,
+    loser: `0x${string}`,
+    reason?: string,
+  ) {
+    const active = matches.get(matchId);
+    if (!active) return;
+    matches.delete(matchId);
+    clearTimer(matchId);
+
+    let signature: `0x${string}` | null = null;
+    if (env.lobbyAddress) {
+      signature = await signClaim(env.signer, {
+        chainId: env.chainId,
+        lobbyAddress: env.lobbyAddress,
+        matchId,
+        winner,
+      });
+    }
+
+    const payload = {
+      matchId,
+      winner,
+      loser,
+      signature,
+      lobbyAddress: env.lobbyAddress,
+      chainId: env.chainId,
+      ...(reason && { reason }),
+    };
+    io.to(active.sockets.A).emit("match:end", payload);
+    io.to(active.sockets.B).emit("match:end", payload);
+  }
+
+  function startTurnTimer(matchId: `0x${string}`) {
+    clearTimer(matchId);
+    const active = matches.get(matchId);
+    if (!active) return;
+
+    const turn = active.match.getTurn();
+    const turnAddr = turn === "A" ? active.match.playerA : active.match.playerB;
+    io.to(active.sockets.A).emit("match:turnTimer", { turn: turnAddr, timeoutMs: TURN_TIMEOUT_MS });
+    io.to(active.sockets.B).emit("match:turnTimer", { turn: turnAddr, timeoutMs: TURN_TIMEOUT_MS });
+
+    timers.set(matchId, setTimeout(() => {
+      const still = matches.get(matchId);
+      if (!still) return;
+      const timedOut = still.match.getTurn();
+      const loser  = timedOut === "A" ? still.match.playerA : still.match.playerB;
+      const winner = timedOut === "A" ? still.match.playerB : still.match.playerA;
+      void endMatch(matchId, winner, loser, "timeout");
+    }, TURN_TIMEOUT_MS));
+  }
+
+  function startPlaceTimer(matchId: `0x${string}`) {
+    clearTimer(matchId);
+    timers.set(matchId, setTimeout(() => {
+      const active = matches.get(matchId);
+      if (!active) return;
+      const aPlaced = active.placed.has("A");
+      const bPlaced = active.placed.has("B");
+      if (!aPlaced && !bPlaced) { matches.delete(matchId); clearTimer(matchId); return; }
+      const loserSide: PlayerSide = !aPlaced ? "A" : "B";
+      const loser  = loserSide === "A" ? active.match.playerA : active.match.playerB;
+      const winner = loserSide === "A" ? active.match.playerB : active.match.playerA;
+      void endMatch(matchId, winner, loser, "timeout");
+    }, PLACE_TIMEOUT_MS));
   }
 
   io.on("connection", (socket) => {
@@ -98,24 +160,14 @@ export function registerSocketHandlers(
 
     socket.on("queue:join", async (msg: QueueJoinMsg) => {
       let stake: bigint;
-      try {
-        stake = BigInt(msg.stake);
-      } catch {
-        return error(socket, "invalid stake");
-      }
+      try { stake = BigInt(msg.stake); } catch { return error(socket, "invalid stake"); }
       if (stake <= 0n) return error(socket, "stake must be positive");
       if (!/^0x[a-fA-F0-9]{40}$/.test(msg.address)) return error(socket, "invalid address");
 
-      // Audit H5: the address the client claims MUST match the wallet on
-      // the verified JWT. Otherwise a (logged-in) attacker could spoof a
-      // peer's address into our matchmaker. Skipped only when auth isn't
-      // configured (dev/CI).
       if (authEnv) {
         const claimed = normaliseWallet(msg.address);
         const tokenWallet = (socket as AuthSocket).data.wallet;
-        if (tokenWallet !== claimed) {
-          return error(socket, "wallet does not match auth token");
-        }
+        if (tokenWallet !== claimed) return error(socket, "wallet does not match auth token");
       }
 
       const entry: QueueEntry = {
@@ -126,10 +178,7 @@ export function registerSocketHandlers(
       };
 
       const pairing = matchmaker.enqueue(entry);
-      if (!pairing) {
-        socket.emit("queue:waiting", { stake: msg.stake });
-        return;
-      }
+      if (!pairing) { socket.emit("queue:waiting", { stake: msg.stake }); return; }
 
       const match = new Match({
         matchId: pairing.matchId,
@@ -140,22 +189,26 @@ export function registerSocketHandlers(
       const active: ActiveMatch = {
         match,
         sockets: { A: pairing.playerA.socketId, B: pairing.playerB.socketId },
+        placed: new Set(),
+        lastFireAt: { A: 0, B: 0 },
       };
       matches.set(match.matchId, active);
 
-      const ioAny = io;
-      ioAny.to(pairing.playerA.socketId).emit("match:ready", {
+      (io as any).to(pairing.playerA.socketId).emit("match:ready", {
         matchId: match.matchId,
         you: "A",
         opponent: pairing.playerB.address,
         stake: stake.toString(),
       });
-      ioAny.to(pairing.playerB.socketId).emit("match:ready", {
+      (io as any).to(pairing.playerB.socketId).emit("match:ready", {
         matchId: match.matchId,
         you: "B",
         opponent: pairing.playerA.address,
         stake: stake.toString(),
       });
+
+      recordPair(pairing.playerA.address, pairing.playerB.address);
+      startPlaceTimer(match.matchId);
     });
 
     socket.on("match:placeFleet", (msg: PlaceFleetMsg) => {
@@ -166,19 +219,17 @@ export function registerSocketHandlers(
 
       const res = active.match.placeFleet(side, msg.fleet);
       if (!res.ok) return error(socket, res.error);
+      active.placed.add(side);
 
       socket.emit("match:fleetAccepted", { matchId: msg.matchId });
+
       if (res.bothPlaced) {
+        clearTimer(msg.matchId);
         const turn = active.match.getTurn();
         const firstPlayer = turn === "A" ? active.match.playerA : active.match.playerB;
-        io.to(active.sockets.A).emit("match:start", {
-          matchId: msg.matchId,
-          firstTurn: firstPlayer,
-        });
-        io.to(active.sockets.B).emit("match:start", {
-          matchId: msg.matchId,
-          firstTurn: firstPlayer,
-        });
+        io.to(active.sockets.A).emit("match:start", { matchId: msg.matchId, firstTurn: firstPlayer });
+        io.to(active.sockets.B).emit("match:start", { matchId: msg.matchId, firstTurn: firstPlayer });
+        startTurnTimer(msg.matchId);
       }
     });
 
@@ -187,6 +238,10 @@ export function registerSocketHandlers(
       if (!active) return error(socket, "match not found");
       const side = sideOf(active, socket.id);
       if (!side) return error(socket, "you are not in this match");
+
+      const now = Date.now();
+      if (now - active.lastFireAt[side] < FIRE_MIN_MS) return error(socket, "firing too fast");
+      active.lastFireAt[side] = now;
 
       const res = active.match.fire(side, msg.row, msg.col);
       if (!res.ok) return error(socket, res.error);
@@ -205,43 +260,24 @@ export function registerSocketHandlers(
       if (res.outcome.allSunk) {
         const result = active.match.getResult();
         if (!result) return;
-        let signature: `0x${string}` | null = null;
-        if (env.lobbyAddress) {
-          signature = await signClaim(env.signer, {
-            chainId: env.chainId,
-            lobbyAddress: env.lobbyAddress,
-            matchId: msg.matchId,
-            winner: result.winner,
-          });
-        }
-        const endPayload = {
-          matchId: msg.matchId,
-          winner: result.winner,
-          loser: result.loser,
-          signature,
-          lobbyAddress: env.lobbyAddress,
-          chainId: env.chainId,
-        };
-        io.to(active.sockets.A).emit("match:end", endPayload);
-        io.to(active.sockets.B).emit("match:end", endPayload);
-        matches.delete(msg.matchId);
+        await endMatch(msg.matchId, result.winner, result.loser);
+      } else {
+        startTurnTimer(msg.matchId);
       }
     });
 
-    socket.on("queue:leave", () => {
-      matchmaker.remove(socket.id);
-    });
+    socket.on("queue:leave", () => { matchmaker.remove(socket.id); });
 
     socket.on("disconnect", (reason) => {
       console.log(`[socket] disconnected: ${socket.id} (${reason})`);
       matchmaker.remove(socket.id);
-      // Notify any match the socket is in.
       for (const [id, active] of matches) {
         const side = sideOf(active, socket.id);
         if (!side) continue;
-        const opponentSocket = side === "A" ? active.sockets.B : active.sockets.A;
-        io.to(opponentSocket).emit("match:opponentLeft", { matchId: id });
-        matches.delete(id);
+        const loser  = side === "A" ? active.match.playerA : active.match.playerB;
+        const winner = side === "A" ? active.match.playerB : active.match.playerA;
+        void endMatch(id as `0x${string}`, winner, loser, "disconnect");
+        break;
       }
     });
   });

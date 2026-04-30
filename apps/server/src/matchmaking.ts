@@ -4,7 +4,7 @@ export interface QueueEntry {
   socketId: string;
   address: `0x${string}`;
   stake: bigint;
-  matchId?: `0x${string}`; // on-chain lobby id if the client already created one
+  matchId?: `0x${string}`;
 }
 
 export interface Pairing {
@@ -14,11 +14,40 @@ export interface Pairing {
   playerB: QueueEntry;
 }
 
+// Anti-collusion: cap how many times the same two wallets can match per day.
+// Set high enough so friends can play, but blocks XP-farming loops.
+const PAIR_WINDOW_MS       = 24 * 60 * 60 * 1000;
+const MAX_PAIRS_PER_WINDOW = 10;
+
+interface PairRecord { count: number; windowStart: number; }
+const pairHistory = new Map<string, PairRecord>();
+
+function pairKey(a: string, b: string): string {
+  const [lo, hi] = [a.toLowerCase(), b.toLowerCase()].sort();
+  return `${lo}:${hi}`;
+}
+
+export function wouldExceedPairCap(a: string, b: string): boolean {
+  const entry = pairHistory.get(pairKey(a, b));
+  if (!entry || Date.now() - entry.windowStart > PAIR_WINDOW_MS) return false;
+  return entry.count >= MAX_PAIRS_PER_WINDOW;
+}
+
+export function recordPair(a: string, b: string): void {
+  const key = pairKey(a, b);
+  const now = Date.now();
+  const entry = pairHistory.get(key);
+  if (!entry || now - entry.windowStart > PAIR_WINDOW_MS) {
+    pairHistory.set(key, { count: 1, windowStart: now });
+  } else {
+    entry.count++;
+  }
+}
+
 /**
  * Simple FIFO matchmaking keyed by exact stake. First arrival for a stake
- * waits; second arrival pairs with them. If the first arrival provided an
- * on-chain `matchId`, that id is used — otherwise we mint a random one so the
- * pair has a stable handle (useful for tests / offline demo).
+ * waits; second arrival pairs with them. Self-pairing and collusion-capped
+ * pairs are skipped.
  */
 export class Matchmaker {
   private queues = new Map<string, QueueEntry[]>();
@@ -29,8 +58,10 @@ export class Matchmaker {
     this.bySocket.set(entry.socketId, entry);
     const queue = this.queues.get(key) ?? [];
 
-    // Don't pair a player with themselves.
-    const opponentIdx = queue.findIndex((e) => e.address !== entry.address);
+    const opponentIdx = queue.findIndex(
+      (e) => e.address !== entry.address && !wouldExceedPairCap(entry.address, e.address),
+    );
+
     if (opponentIdx === -1) {
       queue.push(entry);
       this.queues.set(key, queue);
@@ -46,7 +77,6 @@ export class Matchmaker {
     return { matchId, stake: entry.stake, playerA: opponent, playerB: entry };
   }
 
-  /** Remove a socket from any queue it's in (e.g. on disconnect). */
   remove(socketId: string): void {
     const entry = this.bySocket.get(socketId);
     if (!entry) return;
