@@ -11,7 +11,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
-import { closePool, getPool, isDbConfigured, pingDb } from "./db";
+import { closePool, getPool, getStats, isDbConfigured, normaliseWallet, pingDb } from "./db";
 import {
   AuthError,
   issueNonce,
@@ -418,6 +418,15 @@ const leaderboardSubmit: import("express").RequestHandler = async (req, res) => 
   }
   if (req.wallet && req.wallet !== body.address.toLowerCase()) {
     return res.status(403).json({ error: "address does not match auth token" });
+  }
+  const dbStats = await getStats(normaliseWallet(body.address as string));
+  if (dbStats) {
+    if (body.xp > dbStats.xp)
+      return res.status(403).json({ error: "xp exceeds earned amount" });
+    if (body.wins > dbStats.pve_wins + dbStats.pvp_wins)
+      return res.status(403).json({ error: "wins exceed recorded amount" });
+    if (body.losses > dbStats.pve_losses + dbStats.pvp_losses)
+      return res.status(403).json({ error: "losses exceed recorded amount" });
   }
   try {
     const entry = await leaderboard.submit({

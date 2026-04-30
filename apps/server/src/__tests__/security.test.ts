@@ -70,7 +70,7 @@ async function pairAndStart(url: string) {
   const ready2 = once<{ matchId: `0x${string}`; you: "A" | "B" }>(s2, "match:ready");
   s1.emit("queue:join", { address: A_ADDR, stake: "100" });
   s2.emit("queue:join", { address: B_ADDR, stake: "100" });
-  const [r1, r2] = await Promise.all([ready1, ready2]);
+  const [r1, _r2] = await Promise.all([ready1, ready2]);
 
   const matchId = r1.matchId;
   const sA = r1.you === "A" ? s1 : s2;
@@ -171,7 +171,7 @@ describe("socket security integration", () => {
   }, 10_000);
 
   it("signs win for opponent when player disconnects mid-game", async () => {
-    const { s1, s2, firstSocket, secondSocket, matchId } = await pairAndStart(harness.url);
+    const { s1, s2: _s2, firstSocket, secondSocket, matchId: _matchId } = await pairAndStart(harness.url);
     try {
       const end = once<{ reason: string; signature: string | null }>(firstSocket, "match:end");
       secondSocket.disconnect();
