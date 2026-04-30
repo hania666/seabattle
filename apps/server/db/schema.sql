@@ -148,6 +148,16 @@ CREATE TRIGGER inventory_touch_updated_at
   BEFORE UPDATE ON inventory
   FOR EACH ROW EXECUTE FUNCTION trg_touch_updated_at();
 
+
+-- 10. referrals
+CREATE TABLE IF NOT EXISTS referrals (
+  referrer     TEXT NOT NULL REFERENCES users(wallet) ON DELETE CASCADE,
+  referee      TEXT NOT NULL REFERENCES users(wallet) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (referee)
+);
+CREATE INDEX IF NOT EXISTS referrals_referrer_idx ON referrals (referrer, created_at DESC);
+
 -- migration version table
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version    TEXT PRIMARY KEY,
