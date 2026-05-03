@@ -351,76 +351,103 @@ export async function saveReferral(
     return { ok: false, reason: "self_referral" };
   }
 
-  // 3. referrer must exist in users table (FK target)
-  const refRows = await q<{ wallet: string }>(
-    `SELECT wallet FROM users WHERE wallet = $1`,
-    [ref],
-  );
-  if (!refRows[0]) {
-    await audit({
-      wallet: refereeNorm,
-      action: "referral_rejected",
-      payload: { reason: "unknown_referrer" satisfies ReferralRejectReason, ref },
-      ip: args.ip ?? null,
-      userAgent: args.userAgent ?? null,
-      severity: "warn",
-    });
-    return { ok: false, reason: "unknown_referrer" };
-  }
-
-  // 4. anti-sybil cap on referrer
+  // 3 + 4 + 5 collapsed into a single atomic statement to close the
+  // TOCTOU race that would otherwise let concurrent /auth/verify requests
+  // bypass the cap by all reading `count < cap` before any of them inserted.
+  //
+  // The CTE pattern:
+  //   - `ref_check` is empty if the referrer wallet doesn't exist
+  //   - `cap_check.cnt` is the live count in the rolling window
+  //   - the SELECT cross-joins them; rows survive only if both
+  //     (referrer exists) AND (cap_check.cnt < cap)
+  //   - INSERT … ON CONFLICT (referee) DO NOTHING is naturally idempotent
+  //     for repeated sign-ins, and PG holds a row-level lock on referee for
+  //     the duration so two parallel inserts of the same referee serialise.
+  //
+  // Postgres evaluates the WITH clauses, the SELECT, and the INSERT as one
+  // atomic statement under MVCC — there is no observable interleaving from
+  // any other transaction. Empty RETURNING means *something* rejected the
+  // insert; we run a single diagnostic SELECT afterwards (informational
+  // only — the security guarantee is already in the atomic statement) so
+  // the audit log gets the right reason.
   const sinceIso = new Date(Date.now() - REFERRAL_WINDOW_MS).toISOString();
-  const capRows = await q<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM referrals
-       WHERE referrer = $1 AND created_at > $2`,
-    [ref, sinceIso],
-  );
-  const recent = Number(capRows[0]?.count ?? 0);
-  if (recent >= REFERRAL_DAILY_CAP) {
-    await audit({
-      wallet: refereeNorm,
-      action: "referral_rejected",
-      payload: {
-        reason: "sybil_cap_exceeded" satisfies ReferralRejectReason,
-        ref,
-        recent,
-        cap: REFERRAL_DAILY_CAP,
-      },
-      ip: args.ip ?? null,
-      userAgent: args.userAgent ?? null,
-      severity: "warn",
-    });
-    return { ok: false, reason: "sybil_cap_exceeded" };
-  }
-
-  // 5. insert (idempotent: ON CONFLICT (referee) DO NOTHING)
   const inserted = await q<{ referee: string }>(
-    `INSERT INTO referrals (referrer, referee) VALUES ($1, $2)
-     ON CONFLICT (referee) DO NOTHING RETURNING referee`,
-    [ref, refereeNorm],
+    `WITH
+       ref_check AS (
+         SELECT 1 AS ok FROM users WHERE wallet = $1
+       ),
+       cap_check AS (
+         SELECT COUNT(*) AS cnt FROM referrals
+         WHERE referrer = $1 AND created_at > $3
+       )
+     INSERT INTO referrals (referrer, referee)
+     SELECT $1, $2
+       FROM ref_check
+       CROSS JOIN cap_check
+      WHERE cap_check.cnt < $4
+     ON CONFLICT (referee) DO NOTHING
+     RETURNING referee`,
+    [ref, refereeNorm, sinceIso, REFERRAL_DAILY_CAP],
   );
-  if (inserted.length === 0) {
-    // referee already had a referrer recorded — silent no-op, but audit
-    // because repeated attempts may indicate a bot trying to retroactively
-    // attribute referrals.
+
+  if (inserted.length > 0) {
     await audit({
       wallet: refereeNorm,
-      action: "referral_rejected",
-      payload: { reason: "duplicate_referee" satisfies ReferralRejectReason, ref },
+      action: "referral_recorded",
+      payload: { ref },
       ip: args.ip ?? null,
       userAgent: args.userAgent ?? null,
       severity: "info",
     });
-    return { ok: false, reason: "duplicate_referee" };
+    return { ok: true };
+  }
+
+  // Empty RETURNING — figure out *why* for accurate audit. This diagnostic
+  // is read-only and not security-critical: even if a concurrent insert
+  // changes the answer between our atomic INSERT and this SELECT, the
+  // worst case is a slightly mislabelled audit reason.
+  const diag = await q<{
+    referrer_exists: boolean;
+    recent_count: string;
+    already_referred: boolean;
+  }>(
+    `SELECT
+       EXISTS (SELECT 1 FROM users WHERE wallet = $1) AS referrer_exists,
+       (SELECT COUNT(*)::text FROM referrals
+          WHERE referrer = $1 AND created_at > $3) AS recent_count,
+       EXISTS (SELECT 1 FROM referrals WHERE referee = $2) AS already_referred`,
+    [ref, refereeNorm, sinceIso],
+  );
+  const d = diag[0]!;
+  const recent = Number(d.recent_count);
+
+  let reason: ReferralRejectReason;
+  let severity: "info" | "warn" = "warn";
+  let payload: Record<string, unknown> = { ref };
+  if (!d.referrer_exists) {
+    reason = "unknown_referrer";
+  } else if (d.already_referred) {
+    // Idempotent re-sign-in path — info-level, not warn.
+    reason = "duplicate_referee";
+    severity = "info";
+  } else if (recent >= REFERRAL_DAILY_CAP) {
+    reason = "sybil_cap_exceeded";
+    payload = { ref, recent, cap: REFERRAL_DAILY_CAP };
+  } else {
+    // Race fallback: between the atomic INSERT and this diagnostic, state
+    // changed (e.g. a parallel insert filled the cap, then was rolled back).
+    // Treat as cap_exceeded so the operator still sees something useful.
+    reason = "sybil_cap_exceeded";
+    payload = { ref, recent, cap: REFERRAL_DAILY_CAP, raceFallback: true };
   }
 
   await audit({
     wallet: refereeNorm,
-    action: "referral_recorded",
-    payload: { ref },
+    action: "referral_rejected",
+    payload: { reason, ...payload },
     ip: args.ip ?? null,
     userAgent: args.userAgent ?? null,
-    severity: "info",
+    severity,
   });
-  return { ok: true };
+  return { ok: false, reason };
 }

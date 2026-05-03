@@ -98,16 +98,23 @@ describe("saveReferral", () => {
   });
 
   it("rejects unknown referrer (FK target missing) and audits", async () => {
-    queryMock.mockResolvedValueOnce([]); // SELECT users WHERE wallet = ref → empty
+    queryMock
+      // atomic CTE INSERT — empty because ref_check is empty
+      .mockResolvedValueOnce([])
+      // diagnostic SELECT
+      .mockResolvedValueOnce([
+        { referrer_exists: false, recent_count: "0", already_referred: false },
+      ]);
     const result = await saveReferral(
       { referrer: REFERRER, referee: REFEREE },
       deps,
     );
     expect(result).toEqual({ ok: false, reason: "unknown_referrer" });
-    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(queryMock).toHaveBeenCalledTimes(2);
     expect(recordAuditMock).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "referral_rejected",
+        severity: "warn",
         payload: expect.objectContaining({ reason: "unknown_referrer" }),
       }),
     );
@@ -115,8 +122,16 @@ describe("saveReferral", () => {
 
   it("enforces sybil cap and audits (uses payload.recent + cap)", async () => {
     queryMock
-      .mockResolvedValueOnce([{ wallet: REFERRER }]) // referrer exists
-      .mockResolvedValueOnce([{ count: String(REFERRAL_DAILY_CAP) }]); // already at cap
+      // atomic CTE INSERT — empty because cap_check.cnt >= cap
+      .mockResolvedValueOnce([])
+      // diagnostic
+      .mockResolvedValueOnce([
+        {
+          referrer_exists: true,
+          recent_count: String(REFERRAL_DAILY_CAP),
+          already_referred: false,
+        },
+      ]);
 
     const result = await saveReferral(
       { referrer: REFERRER, referee: REFEREE },
@@ -135,17 +150,15 @@ describe("saveReferral", () => {
     );
   });
 
-  it("inserts and audits success when all checks pass", async () => {
-    queryMock
-      .mockResolvedValueOnce([{ wallet: REFERRER }])
-      .mockResolvedValueOnce([{ count: "3" }])
-      .mockResolvedValueOnce([{ referee: REFEREE }]);
+  it("inserts and audits success when all checks pass (single query, no diagnostic)", async () => {
+    queryMock.mockResolvedValueOnce([{ referee: REFEREE }]);
 
     const result = await saveReferral(
       { referrer: REFERRER, referee: REFEREE },
       deps,
     );
     expect(result).toEqual({ ok: true });
+    expect(queryMock).toHaveBeenCalledTimes(1); // happy path is one statement
     expect(recordAuditMock).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "referral_recorded",
@@ -157,9 +170,12 @@ describe("saveReferral", () => {
 
   it("treats duplicate referee as info-level rejection (idempotent re-sign-in)", async () => {
     queryMock
-      .mockResolvedValueOnce([{ wallet: REFERRER }])
-      .mockResolvedValueOnce([{ count: "1" }])
-      .mockResolvedValueOnce([]); // INSERT … ON CONFLICT DO NOTHING → no rows
+      // atomic CTE INSERT — empty due to ON CONFLICT DO NOTHING
+      .mockResolvedValueOnce([])
+      // diagnostic — referrer ok, already_referred true
+      .mockResolvedValueOnce([
+        { referrer_exists: true, recent_count: "1", already_referred: true },
+      ]);
 
     const result = await saveReferral(
       { referrer: REFERRER, referee: REFEREE },
@@ -176,21 +192,65 @@ describe("saveReferral", () => {
   });
 
   it("normalises mixed-case input (referrer + referee both lowercased)", async () => {
-    queryMock
-      .mockResolvedValueOnce([{ wallet: REFERRER }])
-      .mockResolvedValueOnce([{ count: "0" }])
-      .mockResolvedValueOnce([{ referee: REFEREE }]);
+    queryMock.mockResolvedValueOnce([{ referee: REFEREE }]);
 
     await saveReferral(
       { referrer: REFERRER.toUpperCase(), referee: REFEREE.toUpperCase() },
       deps,
     );
-    const insertCall = queryMock.mock.calls[2];
-    expect(insertCall![1]).toEqual([REFERRER, REFEREE]);
+    const insertCall = queryMock.mock.calls[0];
+    // Atomic CTE: $1=ref, $2=referee, $3=sinceIso, $4=cap
+    expect(insertCall![1]?.slice(0, 2)).toEqual([REFERRER, REFEREE]);
+    expect(insertCall![1]?.[3]).toBe(REFERRAL_DAILY_CAP);
+  });
+
+  it("passes referrer, referee, sinceIso, and cap as the four CTE params", async () => {
+    queryMock.mockResolvedValueOnce([{ referee: REFEREE }]);
+    const before = Date.now();
+    await saveReferral({ referrer: REFERRER, referee: REFEREE }, deps);
+    const after = Date.now();
+
+    const params = queryMock.mock.calls[0]![1] as unknown[];
+    expect(params[0]).toBe(REFERRER);
+    expect(params[1]).toBe(REFEREE);
+    // sinceIso = now - 24h; we just sanity-check format and rough timestamp.
+    const sinceMs = Date.parse(params[2] as string);
+    expect(sinceMs).toBeGreaterThanOrEqual(before - 24 * 60 * 60 * 1000 - 100);
+    expect(sinceMs).toBeLessThanOrEqual(after - 24 * 60 * 60 * 1000 + 100);
+    expect(params[3]).toBe(REFERRAL_DAILY_CAP);
+  });
+
+  it("falls back to sybil_cap_exceeded with raceFallback flag when diagnostic disagrees", async () => {
+    // Atomic INSERT rejected, but by the time the diagnostic runs another
+    // session has rolled back its row, so cap shows under the limit. We
+    // still treat as cap-exceeded to surface the anomaly.
+    queryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { referrer_exists: true, recent_count: "0", already_referred: false },
+      ]);
+
+    const result = await saveReferral(
+      { referrer: REFERRER, referee: REFEREE },
+      deps,
+    );
+    expect(result).toEqual({ ok: false, reason: "sybil_cap_exceeded" });
+    expect(recordAuditMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          reason: "sybil_cap_exceeded",
+          raceFallback: true,
+        }),
+      }),
+    );
   });
 
   it("forwards ip + userAgent into every audit event", async () => {
-    queryMock.mockResolvedValueOnce([]); // unknown referrer path
+    queryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { referrer_exists: false, recent_count: "0", already_referred: false },
+      ]);
     await saveReferral(
       {
         referrer: REFERRER,
