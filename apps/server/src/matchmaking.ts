@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { isDbConfigured, query } from "./db";
 
 export interface QueueEntry {
   socketId: string;
@@ -16,61 +17,180 @@ export interface Pairing {
 }
 
 // Anti-collusion: cap how many times the same two wallets can match per day.
-const PAIR_WINDOW_MS       = 24 * 60 * 60 * 1000;
-const MAX_PAIRS_PER_WINDOW = 10;
+export const PAIR_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const MAX_PAIRS_PER_WINDOW = 10;
 
-interface PairRecord { count: number; windowStart: number; }
-const pairHistory = new Map<string, PairRecord>();
-
-function pairKey(a: string, b: string): string {
+/**
+ * Build the canonical pair key — lowercased + sorted so (A,B) and (B,A)
+ * collapse onto the same row.
+ */
+export function pairKey(a: string, b: string): string {
   const [lo, hi] = [a.toLowerCase(), b.toLowerCase()].sort();
   return `${lo}:${hi}`;
 }
 
-export function wouldExceedPairCap(a: string, b: string): boolean {
-  const key = pairKey(a, b);
-  const entry = pairHistory.get(key);
-  if (!entry) return false;
-  if (Date.now() - entry.windowStart > PAIR_WINDOW_MS) {
-    pairHistory.delete(key);
-    return false;
-  }
-  return entry.count >= MAX_PAIRS_PER_WINDOW;
+/**
+ * Persistence for the daily pair cap. Two implementations:
+ *
+ *  - dbPairCapStore: backed by the `pair_history` table. Used in production
+ *    so the cap survives deploys / machine restarts and stays correct if we
+ *    ever scale to more than one Fly machine.
+ *  - inMemoryPairCapStore: process-local fallback for local dev without a
+ *    DB and for unit tests that want isolated state per case.
+ */
+export interface PairCapStore {
+  /** True iff this exact pair has already hit the cap inside the window. */
+  wouldExceedCap(a: string, b: string): Promise<boolean>;
+  /**
+   * For an incoming queuer `addr`, return the lowercased addresses of all
+   * peers they would be capped against. Lets the matchmaker check N
+   * potential opponents in one query instead of N round-trips.
+   */
+  getCappedPeers(addr: string): Promise<Set<string>>;
+  /** Append one pairing event. Caller is the socket layer post-pairing. */
+  recordPair(a: string, b: string): Promise<void>;
 }
 
-export function recordPair(a: string, b: string): void {
-  const key = pairKey(a, b);
-  const now = Date.now();
-  const entry = pairHistory.get(key);
-  if (!entry || now - entry.windowStart > PAIR_WINDOW_MS) {
-    pairHistory.set(key, { count: 1, windowStart: now });
-  } else {
-    entry.count++;
+export function inMemoryPairCapStore(): PairCapStore {
+  interface Bucket {
+    timestamps: number[]; // ms epoch
   }
+  const buckets = new Map<string, Bucket>();
+
+  function freshTimestamps(key: string): number[] {
+    const cutoff = Date.now() - PAIR_WINDOW_MS;
+    const bucket = buckets.get(key);
+    if (!bucket) return [];
+    const fresh = bucket.timestamps.filter((t) => t > cutoff);
+    if (fresh.length === 0) buckets.delete(key);
+    else bucket.timestamps = fresh;
+    return fresh;
+  }
+
+  return {
+    async wouldExceedCap(a, b) {
+      return freshTimestamps(pairKey(a, b)).length >= MAX_PAIRS_PER_WINDOW;
+    },
+    async getCappedPeers(addr) {
+      const me = addr.toLowerCase();
+      const cutoff = Date.now() - PAIR_WINDOW_MS;
+      const blocked = new Set<string>();
+      for (const [key, bucket] of buckets) {
+        const [lo, hi] = key.split(":");
+        if (lo !== me && hi !== me) continue;
+        const fresh = bucket.timestamps.filter((t) => t > cutoff);
+        if (fresh.length >= MAX_PAIRS_PER_WINDOW) {
+          blocked.add(lo === me ? (hi as string) : (lo as string));
+        }
+      }
+      return blocked;
+    },
+    async recordPair(a, b) {
+      const key = pairKey(a, b);
+      const now = Date.now();
+      const bucket = buckets.get(key) ?? { timestamps: [] };
+      bucket.timestamps.push(now);
+      buckets.set(key, bucket);
+    },
+  };
+}
+
+interface DbDeps {
+  query: typeof query;
+}
+
+/**
+ * Postgres-backed pair history. Each pairing is one row in `pair_history`,
+ * which is cheap to count and trivially serialisable across machines.
+ */
+export function dbPairCapStore(deps: DbDeps = { query }): PairCapStore {
+  function sinceIso(): string {
+    return new Date(Date.now() - PAIR_WINDOW_MS).toISOString();
+  }
+
+  return {
+    async wouldExceedCap(a, b) {
+      const rows = await deps.query<{ cnt: string }>(
+        `SELECT COUNT(*)::text AS cnt FROM pair_history
+          WHERE pair_key = $1 AND paired_at > $2`,
+        [pairKey(a, b), sinceIso()],
+      );
+      const cnt = Number(rows[0]?.cnt ?? "0");
+      return cnt >= MAX_PAIRS_PER_WINDOW;
+    },
+    async getCappedPeers(addr) {
+      // For all pairs touching `addr` in the last 24h, return the *peer*
+      // addresses whose pair count has already hit the cap.
+      const me = addr.toLowerCase();
+      const rows = await deps.query<{ peer: string }>(
+        `SELECT
+           CASE
+             WHEN split_part(pair_key, ':', 1) = $1
+               THEN split_part(pair_key, ':', 2)
+             ELSE split_part(pair_key, ':', 1)
+           END AS peer
+         FROM pair_history
+         WHERE (split_part(pair_key, ':', 1) = $1
+             OR split_part(pair_key, ':', 2) = $1)
+           AND paired_at > $2
+         GROUP BY peer
+         HAVING COUNT(*) >= $3`,
+        [me, sinceIso(), MAX_PAIRS_PER_WINDOW],
+      );
+      return new Set(rows.map((r) => r.peer));
+    },
+    async recordPair(a, b) {
+      await deps.query(
+        `INSERT INTO pair_history (pair_key) VALUES ($1)`,
+        [pairKey(a, b)],
+      );
+    },
+  };
+}
+
+/** Default store used by `Matchmaker` when none is injected. */
+export function defaultPairCapStore(): PairCapStore {
+  return isDbConfigured() ? dbPairCapStore() : inMemoryPairCapStore();
 }
 
 export class Matchmaker {
   private queues = new Map<string, QueueEntry[]>();
   private bySocket = new Map<string, QueueEntry>();
+  private store: PairCapStore;
 
-  enqueue(entry: QueueEntry): Pairing | null {
-    const key = entry.stake.toString();
+  constructor(store?: PairCapStore) {
+    this.store = store ?? defaultPairCapStore();
+  }
+
+  /**
+   * Try to pair `entry` against an existing queuer at the same stake. The
+   * cap check uses one DB round-trip (`getCappedPeers`) so this scales
+   * even if the queue grows.
+   */
+  async enqueue(entry: QueueEntry): Promise<Pairing | null> {
+    const stakeKey = entry.stake.toString();
     entry.enqueuedAt ??= Date.now();
     this.bySocket.set(entry.socketId, entry);
-    const queue = this.queues.get(key) ?? [];
+    const queue = this.queues.get(stakeKey) ?? [];
+
+    const blockedPeers = await this.store.getCappedPeers(entry.address);
+    const myAddrLower = entry.address.toLowerCase();
 
     const opponentIdx = queue.findIndex(
-      (e) => e.address !== entry.address && !wouldExceedPairCap(entry.address, e.address),
+      (e) =>
+        e.address !== entry.address &&
+        !blockedPeers.has(e.address.toLowerCase()) &&
+        e.address.toLowerCase() !== myAddrLower, // defense in depth
     );
 
     if (opponentIdx === -1) {
       queue.push(entry);
-      this.queues.set(key, queue);
+      this.queues.set(stakeKey, queue);
       return null;
     }
 
     const opponent = queue.splice(opponentIdx, 1)[0]!;
-    this.queues.set(key, queue);
+    this.queues.set(stakeKey, queue);
     this.bySocket.delete(entry.socketId);
     this.bySocket.delete(opponent.socketId);
 
@@ -78,12 +198,17 @@ export class Matchmaker {
     return { matchId, stake: entry.stake, playerA: opponent, playerB: entry };
   }
 
+  /** Persist a successful pairing for future cap evaluations. */
+  recordPair(a: string, b: string): Promise<void> {
+    return this.store.recordPair(a, b);
+  }
+
   remove(socketId: string): void {
     const entry = this.bySocket.get(socketId);
     if (!entry) return;
     this.bySocket.delete(socketId);
-    const key = entry.stake.toString();
-    const queue = this.queues.get(key);
+    const stakeKey = entry.stake.toString();
+    const queue = this.queues.get(stakeKey);
     if (!queue) return;
     const idx = queue.findIndex((e) => e.socketId === socketId);
     if (idx >= 0) queue.splice(idx, 1);
@@ -95,7 +220,10 @@ export class Matchmaker {
     const stale: QueueEntry[] = [];
     for (const [key, queue] of this.queues) {
       const fresh = queue.filter((e) => {
-        if (now - (e.enqueuedAt ?? now) > maxWaitMs) { stale.push(e); return false; }
+        if (now - (e.enqueuedAt ?? now) > maxWaitMs) {
+          stale.push(e);
+          return false;
+        }
         return true;
       });
       this.queues.set(key, fresh);

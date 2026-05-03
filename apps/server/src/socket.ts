@@ -4,7 +4,8 @@ import { type AuthEnv, verifyJwt } from "./auth";
 import { normaliseWallet } from "./db";
 import { Match, type PlayerSide } from "./game/match";
 import type { FleetInput } from "./game/board";
-import { Matchmaker, type QueueEntry, recordPair } from "./matchmaking";
+import { Matchmaker, type QueueEntry } from "./matchmaking";
+import { captureException } from "./sentry";
 import { signClaim } from "./signer";
 
 const TURN_TIMEOUT_MS  = 90_000;
@@ -186,7 +187,18 @@ export function registerSocketHandlers(
         enqueuedAt: Date.now(),
       };
 
-      const pairing = matchmaker.enqueue(entry);
+      let pairing;
+      try {
+        pairing = await matchmaker.enqueue(entry);
+      } catch (e) {
+        // Pair-cap lookup hit a DB hiccup; fail open (do not block live
+        // matchmaking) but surface it so we hear about it. The next attempt
+        // will retry — collusion attackers can't exploit the gap because
+        // the cap is still enforced on the *next* successful query.
+        captureException(e, { route: "queue:join", subroutine: "matchmaker.enqueue" });
+        socket.emit("queue:error", { reason: "matchmaker_unavailable" });
+        return;
+      }
       if (!pairing) { socket.emit("queue:waiting", { stake: msg.stake }); return; }
 
       const match = new Match({
@@ -216,7 +228,10 @@ export function registerSocketHandlers(
         stake: stake.toString(),
       });
 
-      recordPair(pairing.playerA.address, pairing.playerB.address);
+      // Persist pairing for future cap checks; never block matchmaking.
+      matchmaker
+        .recordPair(pairing.playerA.address, pairing.playerB.address)
+        .catch((e) => captureException(e, { route: "queue:join", subroutine: "recordPair" }));
       startPlaceTimer(match.matchId);
     });
 

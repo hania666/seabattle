@@ -4,7 +4,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { Server as SocketIOServer } from "socket.io";
 import { io as Client, type Socket } from "socket.io-client";
 import { privateKeyToAccount } from "viem/accounts";
-import { wouldExceedPairCap, recordPair, Matchmaker } from "../matchmaking";
+import { Matchmaker, inMemoryPairCapStore, type PairCapStore } from "../matchmaking";
 import { registerSocketHandlers } from "../socket";
 import type { Env } from "../env";
 
@@ -90,34 +90,39 @@ async function pairAndStart(url: string) {
 // ── Anti-collusion ────────────────────────────────────────────────────────────
 
 describe("anti-collusion pair cap", () => {
-  it("allows up to 10 matches then blocks the 11th", () => {
+  let store: PairCapStore;
+  beforeEach(() => {
+    store = inMemoryPairCapStore();
+  });
+
+  it("allows up to 10 matches then blocks the 11th", async () => {
     const X = "0x1111111111111111111111111111111111111111";
     const Y = "0x2222222222222222222222222222222222222222";
     for (let i = 0; i < 10; i++) {
-      expect(wouldExceedPairCap(X, Y)).toBe(false);
-      recordPair(X, Y);
+      expect(await store.wouldExceedCap(X, Y)).toBe(false);
+      await store.recordPair(X, Y);
     }
-    expect(wouldExceedPairCap(X, Y)).toBe(true);
+    expect(await store.wouldExceedCap(X, Y)).toBe(true);
   });
 
-  it("pair key is symmetric — (A,B) same as (B,A)", () => {
+  it("pair key is symmetric — (A,B) same as (B,A)", async () => {
     const X = "0x3333333333333333333333333333333333333333";
     const Y = "0x4444444444444444444444444444444444444444";
-    for (let i = 0; i < 10; i++) recordPair(X, Y);
-    expect(wouldExceedPairCap(Y, X)).toBe(true);
+    for (let i = 0; i < 10; i++) await store.recordPair(X, Y);
+    expect(await store.wouldExceedCap(Y, X)).toBe(true);
   });
 
-  it("matchmaker skips capped pair and waits for a valid opponent", () => {
-    const mm = new Matchmaker();
+  it("matchmaker skips capped pair and waits for a valid opponent", async () => {
+    const mm = new Matchmaker(store);
     const X = "0x5555555555555555555555555555555555555555" as const;
     const Y = "0x6666666666666666666666666666666666666666" as const;
     const Z = "0x7777777777777777777777777777777777777777" as const;
 
-    for (let i = 0; i < 10; i++) recordPair(X, Y);
+    for (let i = 0; i < 10; i++) await store.recordPair(X, Y);
 
-    mm.enqueue({ socketId: "s1", address: X, stake: 100n });
-    expect(mm.enqueue({ socketId: "s2", address: Y, stake: 100n })).toBeNull();
-    const pair = mm.enqueue({ socketId: "s3", address: Z, stake: 100n });
+    await mm.enqueue({ socketId: "s1", address: X, stake: 100n });
+    expect(await mm.enqueue({ socketId: "s2", address: Y, stake: 100n })).toBeNull();
+    const pair = await mm.enqueue({ socketId: "s3", address: Z, stake: 100n });
     expect(pair).not.toBeNull();
     expect(pair!.playerA.address).toBe(X);
     expect(pair!.playerB.address).toBe(Z);
@@ -127,12 +132,12 @@ describe("anti-collusion pair cap", () => {
 // ── Queue drain ───────────────────────────────────────────────────────────────
 
 describe("queue drain", () => {
-  it("drainStale removes entries older than maxWaitMs", () => {
-    const mm = new Matchmaker();
+  it("drainStale removes entries older than maxWaitMs", async () => {
+    const mm = new Matchmaker(inMemoryPairCapStore());
     const OLD  = "0x8888888888888888888888888888888888888888" as const;
     const NEW_ = "0x9999999999999999999999999999999999999999" as const;
-    mm.enqueue({ socketId: "old1", address: OLD,  stake: 100n, enqueuedAt: Date.now() - 10_000 });
-    mm.enqueue({ socketId: "new1", address: NEW_, stake: 200n });
+    await mm.enqueue({ socketId: "old1", address: OLD,  stake: 100n, enqueuedAt: Date.now() - 10_000 });
+    await mm.enqueue({ socketId: "new1", address: NEW_, stake: 200n });
 
     const stale = mm.drainStale(5_000);
     expect(stale.map((e) => e.socketId)).toContain("old1");
@@ -141,10 +146,10 @@ describe("queue drain", () => {
     expect(mm.size(200n)).toBe(1);
   });
 
-  it("returns empty when nothing is stale", () => {
-    const mm = new Matchmaker();
+  it("returns empty when nothing is stale", async () => {
+    const mm = new Matchmaker(inMemoryPairCapStore());
     const ADDR = "0xaaaabbbbaaaabbbbaaaabbbbaaaabbbbaaaabbbb" as const;
-    mm.enqueue({ socketId: "s1", address: ADDR, stake: 100n });
+    await mm.enqueue({ socketId: "s1", address: ADDR, stake: 100n });
     expect(mm.drainStale(60_000)).toHaveLength(0);
   });
 });
