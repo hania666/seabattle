@@ -229,3 +229,180 @@ export async function getUser(rawWallet: string): Promise<UserRow | null> {
   const rows = await query<UserRow>(`SELECT * FROM users WHERE wallet = $1`, [wallet]);
   return rows[0] ?? null;
 }
+
+/**
+ * Reasons a referral attempt can be rejected. Surfaced to the audit log so
+ * we can spot abuse patterns without inventing magic strings everywhere.
+ */
+export type ReferralRejectReason =
+  | "self_referral"
+  | "invalid_format"
+  | "unknown_referrer"
+  | "sybil_cap_exceeded"
+  | "duplicate_referee";
+
+export type ReferralResult =
+  | { ok: true }
+  | { ok: false; reason: ReferralRejectReason };
+
+/**
+ * Maximum referrals a single referrer can accept in a rolling 24h window.
+ * Above this, attempts are rejected and audited as `referral_rejected` so
+ * sybil farms can't pivot N freshly-funded EOAs into one main wallet's
+ * referral count overnight.
+ *
+ * Tunable via REFERRAL_DAILY_CAP env var. 20 is a deliberate-but-not-tiny
+ * default: organic word-of-mouth from a single user rarely exceeds 5/day,
+ * so 20 is generous while still capping pure scripted abuse.
+ */
+export const REFERRAL_DAILY_CAP = Number(process.env.REFERRAL_DAILY_CAP ?? 20);
+const REFERRAL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * DB primitives saveReferral depends on, exposed as an interface so tests
+ * can substitute fakes. Production code uses the module-level defaults.
+ */
+export interface ReferralDeps {
+  query: typeof query;
+  recordAudit: typeof recordAudit;
+}
+
+const defaultReferralDeps: ReferralDeps = { query, recordAudit };
+
+/**
+ * Best-effort referral persistence with anti-sybil + audit guarantees.
+ *
+ * Validation order (cheapest-first, to avoid burning DB on garbage):
+ *   1. format: ref must be 0x + 40 hex
+ *   2. self-referral: ref !== referee
+ *   3. referrer must exist in `users` (else FK insert would fail silently)
+ *   4. referrer must not exceed REFERRAL_DAILY_CAP in the last 24h
+ *   5. INSERT … ON CONFLICT (referee) DO NOTHING — idempotent if user
+ *      re-signs in with the same ref.
+ *
+ * Every rejection is audit-logged so we can spot abuse trends. Successful
+ * persistence is also logged (severity=info) for accounting.
+ *
+ * Never throws — auth flow continues regardless.
+ */
+export async function saveReferral(
+  args: {
+    referrer: string | null;
+    referee: string;
+    ip?: string | null;
+    userAgent?: string | null;
+  },
+  deps: ReferralDeps = defaultReferralDeps,
+): Promise<ReferralResult> {
+  const { query: q, recordAudit: audit } = deps;
+  // referee can come in mixed-case; lowercase first so format/equality checks
+  // are consistent without needing a strict normaliseWallet (which throws).
+  const refereeLower = args.referee.toLowerCase();
+  const refereeNorm = /^0x[a-f0-9]{40}$/.test(refereeLower)
+    ? refereeLower
+    : normaliseWallet(args.referee);
+  const ref = (args.referrer ?? "").toLowerCase().trim();
+
+  // 1. format check
+  if (!/^0x[a-f0-9]{40}$/.test(ref)) {
+    if (ref.length > 0) {
+      // Only audit when something *was* provided that looked vaguely like a
+      // ref. Empty / null refs aren't suspicious — most users have no ref.
+      await audit({
+        wallet: refereeNorm,
+        action: "referral_rejected",
+        payload: { reason: "invalid_format" satisfies ReferralRejectReason },
+        ip: args.ip ?? null,
+        userAgent: args.userAgent ?? null,
+        severity: "warn",
+      });
+    }
+    return { ok: false, reason: "invalid_format" };
+  }
+
+  // 2. self-referral
+  if (ref === refereeNorm) {
+    await audit({
+      wallet: refereeNorm,
+      action: "referral_rejected",
+      payload: { reason: "self_referral" satisfies ReferralRejectReason, ref },
+      ip: args.ip ?? null,
+      userAgent: args.userAgent ?? null,
+      severity: "warn",
+    });
+    return { ok: false, reason: "self_referral" };
+  }
+
+  // 3. referrer must exist in users table (FK target)
+  const refRows = await q<{ wallet: string }>(
+    `SELECT wallet FROM users WHERE wallet = $1`,
+    [ref],
+  );
+  if (!refRows[0]) {
+    await audit({
+      wallet: refereeNorm,
+      action: "referral_rejected",
+      payload: { reason: "unknown_referrer" satisfies ReferralRejectReason, ref },
+      ip: args.ip ?? null,
+      userAgent: args.userAgent ?? null,
+      severity: "warn",
+    });
+    return { ok: false, reason: "unknown_referrer" };
+  }
+
+  // 4. anti-sybil cap on referrer
+  const sinceIso = new Date(Date.now() - REFERRAL_WINDOW_MS).toISOString();
+  const capRows = await q<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM referrals
+       WHERE referrer = $1 AND created_at > $2`,
+    [ref, sinceIso],
+  );
+  const recent = Number(capRows[0]?.count ?? 0);
+  if (recent >= REFERRAL_DAILY_CAP) {
+    await audit({
+      wallet: refereeNorm,
+      action: "referral_rejected",
+      payload: {
+        reason: "sybil_cap_exceeded" satisfies ReferralRejectReason,
+        ref,
+        recent,
+        cap: REFERRAL_DAILY_CAP,
+      },
+      ip: args.ip ?? null,
+      userAgent: args.userAgent ?? null,
+      severity: "warn",
+    });
+    return { ok: false, reason: "sybil_cap_exceeded" };
+  }
+
+  // 5. insert (idempotent: ON CONFLICT (referee) DO NOTHING)
+  const inserted = await q<{ referee: string }>(
+    `INSERT INTO referrals (referrer, referee) VALUES ($1, $2)
+     ON CONFLICT (referee) DO NOTHING RETURNING referee`,
+    [ref, refereeNorm],
+  );
+  if (inserted.length === 0) {
+    // referee already had a referrer recorded — silent no-op, but audit
+    // because repeated attempts may indicate a bot trying to retroactively
+    // attribute referrals.
+    await audit({
+      wallet: refereeNorm,
+      action: "referral_rejected",
+      payload: { reason: "duplicate_referee" satisfies ReferralRejectReason, ref },
+      ip: args.ip ?? null,
+      userAgent: args.userAgent ?? null,
+      severity: "info",
+    });
+    return { ok: false, reason: "duplicate_referee" };
+  }
+
+  await audit({
+    wallet: refereeNorm,
+    action: "referral_recorded",
+    payload: { ref },
+    ip: args.ip ?? null,
+    userAgent: args.userAgent ?? null,
+    severity: "info",
+  });
+  return { ok: true };
+}
