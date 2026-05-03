@@ -10,6 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fails the build if anything that looks like a secret (private key,
+  # API token, DB connection string, etc.) is committed to the repo or
+  # to git history. Uses the gitleaks default ruleset; project-specific
+  # rules and false-positive allowlists go in `.gitleaks.toml`. Runs on
+  # PRs against the diff vs. base, and on pushes against full history.
+  secret-scan:
+    name: Secret scan · gitleaks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so the scan covers every commit
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          GITLEAKS_ENABLE_SUMMARY: true
+
   contracts:
     name: Contracts · forge test
     runs-on: ubuntu-latest
