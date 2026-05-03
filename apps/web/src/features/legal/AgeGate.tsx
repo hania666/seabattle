@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useT } from "../../lib/i18n";
 import { acceptConsent } from "../../lib/legal";
-import { TERMS, PRIVACY } from "./content";
+import { getTerms, getPrivacy } from "./content";
 import { LegalModal } from "./LegalModal";
 import { useLang } from "../../lib/i18n";
 
@@ -118,7 +118,7 @@ export function AgeGate({ onAccepted }: Props) {
       </div>
       <LegalModal
         open={viewer !== null}
-        doc={viewer === "tos" ? TERMS[lang] : viewer === "privacy" ? PRIVACY[lang] : null}
+        doc={viewer === "tos" ? getTerms(lang) : viewer === "privacy" ? getPrivacy(lang) : null}
         onClose={() => setViewer(null)}
       />
     </>

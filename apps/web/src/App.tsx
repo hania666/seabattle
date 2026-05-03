@@ -23,7 +23,7 @@ import { runBootstrap } from "./lib/bootstrap";
 import { setSentryWallet } from "./lib/sentry";
 import { LegalProvider } from "./features/legal/LegalProvider";
 import { LegalModal } from "./features/legal/LegalModal";
-import { TERMS, PRIVACY } from "./features/legal/content";
+import { getTerms, getPrivacy } from "./features/legal/content";
 
 const PveScreen = lazy(() =>
   import("./features/pve/PveScreen").then((m) => ({ default: m.PveScreen })),
@@ -95,9 +95,9 @@ function AppInner() {
         open={legalViewer !== null}
         doc={
           legalViewer === "tos"
-            ? TERMS[lang]
+            ? getTerms(lang)
             : legalViewer === "privacy"
-              ? PRIVACY[lang]
+              ? getPrivacy(lang)
               : null
         }
         onClose={() => setLegalViewer(null)}
