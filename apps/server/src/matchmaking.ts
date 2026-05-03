@@ -171,7 +171,20 @@ export class Matchmaker {
     const stakeKey = entry.stake.toString();
     entry.enqueuedAt ??= Date.now();
     this.bySocket.set(entry.socketId, entry);
-    const queue = this.queues.get(stakeKey) ?? [];
+
+    // Install the queue array in the map BEFORE awaiting on the store.
+    // The await yields the event loop, so concurrent enqueues for the
+    // same stake would otherwise each evaluate `?? []` to a *separate*
+    // fresh array, then race on `this.queues.set` after the await — the
+    // later writer silently overwrites the earlier one, the earlier
+    // entry stays in `bySocket` but never appears in any queue (ghost
+    // socket: never matched, never drained). We instead make all
+    // concurrent calls share one array reference and mutate it in place.
+    let queue = this.queues.get(stakeKey);
+    if (!queue) {
+      queue = [];
+      this.queues.set(stakeKey, queue);
+    }
 
     const blockedPeers = await this.store.getCappedPeers(entry.address);
     const myAddrLower = entry.address.toLowerCase();
@@ -185,12 +198,10 @@ export class Matchmaker {
 
     if (opponentIdx === -1) {
       queue.push(entry);
-      this.queues.set(stakeKey, queue);
       return null;
     }
 
     const opponent = queue.splice(opponentIdx, 1)[0]!;
-    this.queues.set(stakeKey, queue);
     this.bySocket.delete(entry.socketId);
     this.bySocket.delete(opponent.socketId);
 
@@ -218,15 +229,18 @@ export class Matchmaker {
   drainStale(maxWaitMs: number): QueueEntry[] {
     const now = Date.now();
     const stale: QueueEntry[] = [];
-    for (const [key, queue] of this.queues) {
-      const fresh = queue.filter((e) => {
+    // Mutate each queue in place rather than replacing the array reference.
+    // `enqueue` may be holding a reference to this exact array across an
+    // `await` (see comment in enqueue above) — replacing the map entry
+    // would leave the awaiting enqueue writing to an orphaned array.
+    for (const queue of this.queues.values()) {
+      for (let i = queue.length - 1; i >= 0; i--) {
+        const e = queue[i]!;
         if (now - (e.enqueuedAt ?? now) > maxWaitMs) {
           stale.push(e);
-          return false;
+          queue.splice(i, 1);
         }
-        return true;
-      });
-      this.queues.set(key, fresh);
+      }
     }
     for (const e of stale) this.bySocket.delete(e.socketId);
     return stale;

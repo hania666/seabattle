@@ -3,6 +3,7 @@ import {
   Matchmaker,
   PAIR_WINDOW_MS,
   MAX_PAIRS_PER_WINDOW,
+  type PairCapStore,
   dbPairCapStore,
   inMemoryPairCapStore,
   pairKey,
@@ -143,5 +144,150 @@ describe("pair cap persists across Matchmaker instances", () => {
     expect(ok).not.toBeNull();
     expect(ok!.playerA.address).toBe(X);
     expect(ok!.playerB.address).toBe(Z);
+  });
+});
+
+// ── Async correctness regressions ─────────────────────────────────────────────
+// The DB-backed store yields the event loop on `await`. These tests pin the
+// invariants that the in-memory `Matchmaker` must hold across that yield.
+// Keeping them in unit-land (no real socket.io) so we can deterministically
+// interleave the two paths via a hand-rolled gated store.
+
+interface GatedStore {
+  store: PairCapStore;
+  /** Resolve the n-th in-flight `getCappedPeers` call (0-indexed). */
+  release(n: number): void;
+  /** Number of `getCappedPeers` calls currently blocked. */
+  pendingCount(): number;
+}
+
+function gatedStore(): GatedStore {
+  const inner = inMemoryPairCapStore();
+  const gates: Array<() => void> = [];
+  const pending: number[] = []; // indexes of unresolved gates
+  return {
+    store: {
+      async wouldExceedCap(a: string, b: string) {
+        return inner.wouldExceedCap(a, b);
+      },
+      async getCappedPeers(addr: string) {
+        const idx = gates.length;
+        pending.push(idx);
+        await new Promise<void>((resolve) => {
+          gates[idx] = () => {
+            pending.splice(pending.indexOf(idx), 1);
+            resolve();
+          };
+        });
+        return inner.getCappedPeers(addr);
+      },
+      async recordPair(a: string, b: string) {
+        return inner.recordPair(a, b);
+      },
+    },
+    release(n) {
+      const fn = gates[n];
+      if (!fn) throw new Error(`no pending getCappedPeers call #${n}`);
+      fn();
+    },
+    pendingCount() {
+      return pending.length;
+    },
+  };
+}
+
+/** Wait for all microtasks queued so far to drain. */
+async function flushMicrotasks(): Promise<void> {
+  // Two passes: each await yields once, and the first one lets a new
+  // microtask requeue itself if needed.
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+describe("Matchmaker concurrency (race regressions)", () => {
+  it("two concurrent enqueues for an empty stake bucket pair correctly (no lost entry)", async () => {
+    const gated = gatedStore();
+    const mm = new Matchmaker(gated.store);
+
+    // Both calls launch and immediately block on `getCappedPeers`. Before
+    // the fix, each evaluated `?? []` to a *separate* fresh array, so when
+    // the second one resumed it would `set(stakeKey, [B])`, overwriting
+    // `set(stakeKey, [A])` from the first — A would vanish from the queue.
+    const pA = mm.enqueue({ socketId: "sA", address: X, stake: 100n });
+    const pB = mm.enqueue({ socketId: "sB", address: Y, stake: 100n });
+
+    await flushMicrotasks();
+    expect(gated.pendingCount()).toBe(2);
+
+    // Resume A first, then B.
+    gated.release(0);
+    expect(await pA).toBeNull(); // A waits, queue = [A]
+
+    gated.release(1);
+    const result = await pB; // B sees A in the same array, pairs.
+
+    expect(result).not.toBeNull();
+    expect(result!.playerA.address).toBe(X);
+    expect(result!.playerB.address).toBe(Y);
+    // After pairing, the queue must be empty — neither A nor B left behind.
+    expect(mm.size(100n)).toBe(0);
+  });
+
+  it("two concurrent enqueues that both find no opponent both end up in the queue", async () => {
+    const gated = gatedStore();
+    const mm = new Matchmaker(gated.store);
+
+    // Same address on two sockets — they cannot pair with each other (the
+    // self-match guard), so both must remain in the queue. Pre-fix, the
+    // second writer's `set` would clobber the first array and leave only
+    // the second socket queued.
+    const p1 = mm.enqueue({ socketId: "s1", address: X, stake: 100n });
+    const p2 = mm.enqueue({ socketId: "s2", address: X, stake: 100n });
+
+    await flushMicrotasks();
+    gated.release(0);
+    gated.release(1);
+    expect(await p1).toBeNull();
+    expect(await p2).toBeNull();
+
+    expect(mm.size(100n)).toBe(2);
+  });
+
+  it("drainStale running while enqueue is awaiting does not orphan the entry", async () => {
+    const gated = gatedStore();
+    const mm = new Matchmaker(gated.store);
+
+    // Step 1: seed the map with a stale entry so the queue array exists.
+    const seedP = mm.enqueue({
+      socketId: "stale1",
+      address: Y,
+      stake: 100n,
+      enqueuedAt: Date.now() - 10_000,
+    });
+    await flushMicrotasks();
+    gated.release(0);
+    expect(await seedP).toBeNull();
+    expect(mm.size(100n)).toBe(1);
+
+    // Step 2: start a fresh enqueue; it grabs a reference to the same
+    // array and parks on the await.
+    const freshP = mm.enqueue({ socketId: "fresh", address: X, stake: 100n });
+    await flushMicrotasks();
+    expect(gated.pendingCount()).toBe(1);
+
+    // Step 3: drainStale fires while `freshP` is parked. Pre-fix it
+    // replaced the array reference (`this.queues.set(key, fresh)`),
+    // leaving the in-flight enqueue holding the orphaned old array.
+    const stale = mm.drainStale(5_000);
+    expect(stale.map((e) => e.socketId)).toEqual(["stale1"]);
+
+    // Step 4: resume the fresh enqueue.
+    gated.release(1);
+    expect(await freshP).toBeNull();
+
+    // The fresh entry must be visible under the live array. Pre-fix this
+    // would be 0 (fresh was pushed to the detached old array; the map
+    // pointed at drainStale's filtered copy).
+    expect(mm.size(100n)).toBe(1);
   });
 });
