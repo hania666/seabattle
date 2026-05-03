@@ -255,7 +255,25 @@ export type ReferralResult =
  * default: organic word-of-mouth from a single user rarely exceeds 5/day,
  * so 20 is generous while still capping pure scripted abuse.
  */
-export const REFERRAL_DAILY_CAP = Number(process.env.REFERRAL_DAILY_CAP ?? 20);
+/**
+ * Parse REFERRAL_DAILY_CAP at module load. We validate eagerly because
+ * `Number("abc")` returns `NaN`, and `recent >= NaN` is always `false`
+ * per IEEE 754 — that would silently disable the cap, defeating the
+ * whole point of this defence.
+ */
+function parseReferralDailyCap(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return 20;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+    throw new Error(
+      `invalid REFERRAL_DAILY_CAP: ${JSON.stringify(raw)} ` +
+        `(must be a non-negative integer)`,
+    );
+  }
+  return n;
+}
+export { parseReferralDailyCap as _parseReferralDailyCap };
+export const REFERRAL_DAILY_CAP = parseReferralDailyCap(process.env.REFERRAL_DAILY_CAP);
 const REFERRAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**

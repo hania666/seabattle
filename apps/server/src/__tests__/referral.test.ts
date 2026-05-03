@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { saveReferral, REFERRAL_DAILY_CAP, type ReferralDeps } from "../db";
+import {
+  saveReferral,
+  REFERRAL_DAILY_CAP,
+  _parseReferralDailyCap,
+  type ReferralDeps,
+} from "../db";
 
 // Inject query + recordAudit fakes directly via the second arg of saveReferral.
 // Cleaner than module-level mocking — module-level vi.mock can't intercept
@@ -24,6 +29,32 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("parseReferralDailyCap (env validation at load-time)", () => {
+  it("defaults to 20 when env is unset or empty", () => {
+    expect(_parseReferralDailyCap(undefined)).toBe(20);
+    expect(_parseReferralDailyCap("")).toBe(20);
+  });
+
+  it("parses valid non-negative integers", () => {
+    expect(_parseReferralDailyCap("0")).toBe(0);
+    expect(_parseReferralDailyCap("5")).toBe(5);
+    expect(_parseReferralDailyCap("9999")).toBe(9999);
+  });
+
+  it.each([
+    "abc",
+    "5abc",
+    "NaN",
+    "-1",
+    "-100",
+    "1.5",
+    "Infinity",
+    "1e308000", // overflow → Infinity
+  ])("rejects %p (would otherwise silently disable cap via NaN/negative)", (raw) => {
+    expect(() => _parseReferralDailyCap(raw)).toThrow(/invalid REFERRAL_DAILY_CAP/);
+  });
 });
 
 describe("saveReferral", () => {
