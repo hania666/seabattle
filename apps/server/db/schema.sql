@@ -167,6 +167,21 @@ INSERT INTO schema_migrations (version) VALUES ('001_phase8_init')
 ON CONFLICT (version) DO NOTHING;
 
 -- ===========================================================================
+-- 12. pair_history — anti-collusion: row-per-pairing for daily cap enforcement
+-- Replaces the in-memory Map<pairKey, count> used during Phase 9 beta. The
+-- in-memory store reset on every deploy / machine restart and was useless
+-- if a future deploy ever ran more than one Fly machine — both bypassing
+-- the cap. Row-per-pairing with a (pair_key, paired_at) index is cheap to
+-- count and trivial to prune.
+CREATE TABLE IF NOT EXISTS pair_history (
+  pair_key     TEXT NOT NULL,           -- "0x<lower>:0x<higher>" (sorted, lowercased)
+  paired_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS pair_history_key_time_idx
+  ON pair_history (pair_key, paired_at DESC);
+CREATE INDEX IF NOT EXISTS pair_history_paired_at_idx
+  ON pair_history (paired_at);
+
 -- Audit L5: retention helpers
 -- ===========================================================================
 -- We don't run pg_cron in our managed Postgres, so retention is enforced by
@@ -182,18 +197,21 @@ ON CONFLICT (version) DO NOTHING;
 --                     24h, and after 90d the signal is stale anyway)
 -- ===========================================================================
 CREATE OR REPLACE FUNCTION prune_audit_data(
-  audit_log_days     INTEGER DEFAULT 180,
-  auth_nonces_days   INTEGER DEFAULT 1,
-  ip_link_days       INTEGER DEFAULT 90
+  audit_log_days       INTEGER DEFAULT 180,
+  auth_nonces_days     INTEGER DEFAULT 1,
+  ip_link_days         INTEGER DEFAULT 90,
+  pair_history_days    INTEGER DEFAULT 7
 ) RETURNS TABLE (
-  pruned_audit_log     BIGINT,
-  pruned_auth_nonces   BIGINT,
-  pruned_ip_link       BIGINT
+  pruned_audit_log       BIGINT,
+  pruned_auth_nonces     BIGINT,
+  pruned_ip_link         BIGINT,
+  pruned_pair_history    BIGINT
 ) AS $$
 DECLARE
   a BIGINT;
   n BIGINT;
   i BIGINT;
+  p BIGINT;
 BEGIN
   DELETE FROM audit_log
    WHERE created_at < now() - make_interval(days => audit_log_days);
@@ -207,8 +225,13 @@ BEGIN
    WHERE last_seen < now() - make_interval(days => ip_link_days);
   GET DIAGNOSTICS i = ROW_COUNT;
 
-  RETURN QUERY SELECT a, n, i;
+  -- pair_history: cap window is 24h, keep an extra few days for forensics
+  DELETE FROM pair_history
+   WHERE paired_at < now() - make_interval(days => pair_history_days);
+  GET DIAGNOSTICS p = ROW_COUNT;
+
+  RETURN QUERY SELECT a, n, i, p;
 END;
 $$ LANGUAGE plpgsql;
-COMMENT ON FUNCTION prune_audit_data(INTEGER, INTEGER, INTEGER) IS
-  'Deletes rows older than the given retention windows from audit_log, auth_nonces, ip_wallet_link. Call daily from a scheduler.';
+COMMENT ON FUNCTION prune_audit_data(INTEGER, INTEGER, INTEGER, INTEGER) IS
+  'Deletes rows older than the given retention windows from audit_log, auth_nonces, ip_wallet_link, pair_history. Call daily from a scheduler.';
