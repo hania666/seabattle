@@ -22,7 +22,12 @@ export type LegalDocument = {
 
 const EFFECTIVE_DATE = "2025-04-22";
 
-export const TERMS: Record<Lang, LegalDocument> = {
+// Legal documents are intentionally NOT machine-translated for languages
+// added in the i18n expansion (es/de/fr/pt/tr). These are binding contracts
+// and need a human lawyer pass before being shown in another language.
+// Consumers must use `getTerms(lang)` / `getPrivacy(lang)` which fall back
+// to English for any language without a verified translation.
+export const TERMS: Partial<Record<Lang, LegalDocument>> = {
   en: {
     title: "Terms of Service",
     effectiveDate: `Effective: ${EFFECTIVE_DATE}`,
@@ -304,7 +309,7 @@ export const TERMS: Record<Lang, LegalDocument> = {
   },
 };
 
-export const PRIVACY: Record<Lang, LegalDocument> = {
+export const PRIVACY: Partial<Record<Lang, LegalDocument>> = {
   en: {
     title: "Privacy Policy",
     effectiveDate: `Effective: ${EFFECTIVE_DATE}`,
@@ -525,3 +530,14 @@ export const PRIVACY: Record<Lang, LegalDocument> = {
     ],
   },
 };
+
+// Resolve a legal document for a given UI language, falling back to English
+// for any language without a verified human-translated copy. Adding a
+// translated entry to TERMS/PRIVACY automatically promotes it.
+export function getTerms(lang: Lang): LegalDocument {
+  return TERMS[lang] ?? (TERMS.en as LegalDocument);
+}
+
+export function getPrivacy(lang: Lang): LegalDocument {
+  return PRIVACY[lang] ?? (PRIVACY.en as LegalDocument);
+}

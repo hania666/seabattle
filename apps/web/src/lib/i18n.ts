@@ -8,17 +8,30 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { dict as esDict } from "./i18n-locales/es";
+import { dict as deDict } from "./i18n-locales/de";
+import { dict as frDict } from "./i18n-locales/fr";
+import { dict as ptDict } from "./i18n-locales/pt";
+import { dict as trDict } from "./i18n-locales/tr";
 
-export type Lang = "en" | "ru" | "uk";
+export type Lang = "en" | "ru" | "uk" | "es" | "de" | "fr" | "pt" | "tr";
 
 export const LANGS: { code: Lang; label: string; flag: string }[] = [
   { code: "en", label: "English", flag: "🇬🇧" },
   { code: "ru", label: "Русский", flag: "🇷🇺" },
   { code: "uk", label: "Українська", flag: "🇺🇦" },
+  { code: "es", label: "Español", flag: "🇪🇸" },
+  { code: "de", label: "Deutsch", flag: "🇩🇪" },
+  { code: "fr", label: "Français", flag: "🇫🇷" },
+  { code: "pt", label: "Português", flag: "🇵🇹" },
+  { code: "tr", label: "Türkçe", flag: "🇹🇷" },
 ];
 
 const LS_KEY = "sea3battle:lang:v1";
 
+// Languages added in 2025-04 expansion (es/de/fr/pt/tr) live in their own
+// modules under ./i18n-locales/. The original en/ru/uk dictionaries are still
+// inline below for diff-friendly evolution alongside English source strings.
 const dictionaries: Record<Lang, Record<string, string>> = {
   en: {
     // Branding
@@ -763,23 +776,42 @@ const dictionaries: Record<Lang, Record<string, string>> = {
     "common.confirm": "Підтвердити",
     "common.error": "Щось пішло не так",
   },
+  es: esDict,
+  de: deDict,
+  fr: frDict,
+  pt: ptDict,
+  tr: trDict,
 };
 
 type Listener = (lang: Lang) => void;
 const listeners = new Set<Listener>();
+// Default landing language is always English. Auto-detection of the browser
+// language was removed deliberately — first-time visitors should see the same
+// onboarding regardless of their browser locale, and they can switch via the
+// header LanguageSwitcher (preference persisted in localStorage under LS_KEY).
+const SUPPORTED_LANGS: readonly Lang[] = [
+  "en",
+  "ru",
+  "uk",
+  "es",
+  "de",
+  "fr",
+  "pt",
+  "tr",
+] as const;
+
 let currentLang: Lang = detect();
 
 function detect(): Lang {
   if (typeof window === "undefined") return "en";
   try {
     const saved = window.localStorage.getItem(LS_KEY);
-    if (saved === "en" || saved === "ru" || saved === "uk") return saved;
+    if (saved && (SUPPORTED_LANGS as readonly string[]).includes(saved)) {
+      return saved as Lang;
+    }
   } catch {
     /* ignore */
   }
-  const nav = typeof navigator !== "undefined" ? navigator.language.toLowerCase() : "en";
-  if (nav.startsWith("ru")) return "ru";
-  if (nav.startsWith("uk") || nav.startsWith("ua")) return "uk";
   return "en";
 }
 
