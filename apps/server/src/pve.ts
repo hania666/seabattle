@@ -31,7 +31,7 @@
  */
 import { randomBytes } from "node:crypto";
 import type { Hex, PrivateKeyAccount } from "viem";
-import { normaliseWallet, recordAudit, withTransaction } from "./db";
+import { awardReferralPerks, normaliseWallet, recordAudit, withTransaction } from "./db";
 import { signResult } from "./signer";
 import {
   FLEET_TOTAL_CELLS,
@@ -44,6 +44,29 @@ import {
 export type Difficulty = "easy" | "normal" | "hard";
 
 const ALLOWED_DIFFICULTIES: readonly Difficulty[] = ["easy", "normal", "hard"];
+
+/**
+ * XP earned by the player for a winning PvE match, mirrored from the web
+ * client's `DIFFICULTY_XP` table (apps/web/src/lib/game/types.ts) so that
+ * server-side referral perks can be computed without trusting the client.
+ *
+ * Only used as the *base* against which referral bonus XP is calculated;
+ * the player's own XP is still tracked client-first in localStorage and
+ * surfaces to the server via the legacy stats sync. We deliberately
+ * mirror the values here rather than import from the web package because
+ * the server doesn't depend on the web bundle and we want this constant
+ * pinned at server build time even if the client formula evolves.
+ */
+const PVE_WIN_XP: Record<Difficulty, number> = {
+  easy: 50,
+  normal: 75,
+  hard: 100,
+};
+
+export function pveMatchXp(difficulty: Difficulty | null, won: boolean): number {
+  if (!won || difficulty === null) return 0;
+  return PVE_WIN_XP[difficulty] ?? 0;
+}
 
 /**
  * Cap on PvE matches a single wallet may *start* in a rolling 24-hour
@@ -329,10 +352,26 @@ export interface FinishResult {
   signature: Hex;
   matchId: `0x${string}`;
   won: boolean;
+  /**
+   * Referral perk that was credited as a side-effect of this match, when
+   * the finishing wallet has a referrer on file. `null` when the wallet
+   * has no referrer or when the referrer's lifetime XP cap is exhausted
+   * AND the first-match coins bonus was already claimed.
+   *
+   * Surfaced in the API response so the client can show a tiny toast
+   * ("+10 XP went to your referrer") without a second round-trip; never
+   * the source of truth for the referrer's balance.
+   */
+  referralPerk: {
+    referrer: string;
+    xpAwarded: number;
+    coinsAwarded: number;
+    firstMatch: boolean;
+  } | null;
 }
 
 type Outcome =
-  | { kind: "ok" }
+  | { kind: "ok"; referralPerk: FinishResult["referralPerk"] }
   | { kind: "reject"; reason: string; cheat: boolean };
 
 export async function finishPveMatch(
@@ -472,7 +511,25 @@ export async function finishPveMatch(
       throw new Error("stats row not updated after upsert");
     }
 
-    return { kind: "ok" };
+    // Referral perks: same transaction so the referrer credit either
+    // commits with the match or rolls back with it. We compute the
+    // referee's match XP from the (server-trusted) difficulty stored at
+    // match-start time, so a tampered client claim can't inflate the
+    // bonus.
+    const matchXp = pveMatchXp(match.difficulty as Difficulty | null, won);
+    const award = await awardReferralPerks(client, wallet, matchXp);
+
+    return {
+      kind: "ok",
+      referralPerk: award
+        ? {
+            referrer: award.referrer,
+            xpAwarded: award.xpAwarded,
+            coinsAwarded: award.coinsAwarded,
+            firstMatch: award.firstMatch,
+          }
+        : null,
+    };
   });
 
   if (outcome.kind === "reject") {
@@ -497,7 +554,12 @@ export async function finishPveMatch(
     won,
   });
 
-  return { signature, matchId: matchId as `0x${string}`, won };
+  return {
+    signature,
+    matchId: matchId as `0x${string}`,
+    won,
+    referralPerk: outcome.referralPerk,
+  };
 }
 
 export function parseDifficulty(input: unknown): Difficulty {

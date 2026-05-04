@@ -22,6 +22,7 @@ import {
 import { useT } from "../../lib/i18n";
 import { AchievementGrid } from "./AchievementGrid";
 import { ReferralLink } from "./ReferralLink";
+import { UsernameRow } from "./UsernameRow";
 
 interface Props {
   onExit: () => void;
@@ -76,6 +77,7 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
               Not connected — stats saved as "guest". Connect to track per-wallet.
             </p>
           )}
+          {isConnected && address && <UsernameRow wallet={address} />}
           {isConnected && address && <ReferralLink address={address} />}
         </div>
         {!isConnected && (

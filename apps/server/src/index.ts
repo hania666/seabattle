@@ -11,7 +11,23 @@ import { Server as SocketIOServer } from "socket.io";
 import { loadEnv } from "./env";
 import { registerSocketHandlers } from "./socket";
 import { createFileStore, topN, type LeaderboardEntry } from "./leaderboard";
-import { closePool, getStats, getUser, isDbConfigured, normaliseWallet, pingDb, query, recordAudit, saveReferral, setDisplayName } from "./db";
+import {
+  closePool,
+  DISPLAY_NAME_CHANGE_COOLDOWN_MS,
+  DisplayNameCooldownError,
+  getStats,
+  getUser,
+  isDbConfigured,
+  listReferralsFor,
+  normaliseWallet,
+  pingDb,
+  recordAudit,
+  REFERRAL_FIRST_MATCH_COINS,
+  REFERRAL_XP_CAP_PER_REFEREE,
+  REFERRAL_XP_PERCENT,
+  saveReferral,
+  setDisplayName,
+} from "./db";
 import {
   AuthError,
   issueNonce,
@@ -432,7 +448,10 @@ if (authEnv) {
  * Rules: 3-20 chars, letters/digits/underscores, must start with a letter.
  */
 if (authEnv) {
-  app.post("/api/profile/username", requireAuth(authEnv), async (req, res) => {
+  // Shared handler — used for both POST (initial set) and PUT (rename).
+  // Same validation, same uniqueness behaviour, same cooldown rule (the
+  // cooldown is a no-op on the first call when display_name is null).
+  const setUsernameHandler: import("express").RequestHandler = async (req, res) => {
     if (!isDbConfigured()) return res.status(503).json({ error: "database not configured" });
     const raw = (req.body?.username ?? "").toString().trim();
     if (!/^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(raw)) {
@@ -442,31 +461,63 @@ if (authEnv) {
     }
     try {
       const user = await setDisplayName(req.wallet!, raw);
-      return res.json({ ok: true, user });
+      const nextAllowedAt = user.display_name_changed_at
+        ? new Date(
+            new Date(user.display_name_changed_at).getTime() +
+              DISPLAY_NAME_CHANGE_COOLDOWN_MS,
+          ).toISOString()
+        : null;
+      return res.json({ ok: true, user, nextAllowedAt });
     } catch (e: unknown) {
+      if (e instanceof DisplayNameCooldownError) {
+        return res.status(429).json({
+          error: "username_cooldown",
+          nextAllowedAt: e.nextAllowedAt.toISOString(),
+        });
+      }
       const msg = (e as Error).message ?? "";
       if (msg.includes("unique") || msg.includes("duplicate")) {
         return res.status(409).json({ error: "username already taken" });
       }
-      captureException(e, { route: "POST /api/profile/username" });
+      captureException(e, { route: `${req.method} /api/profile/username` });
       return res.status(500).json({ error: "failed to set username" });
     }
-  });
+  };
+  // POST stays for back-compat with older clients (initial set).
+  app.post("/api/profile/username", requireAuth(authEnv), setUsernameHandler);
+  // PUT is the rename verb — same handler, the cooldown logic in
+  // setDisplayName is what enforces the 7-day window.
+  app.put("/api/profile/username", requireAuth(authEnv), setUsernameHandler);
 }
 
 
 /**
- * GET /api/referrals — list wallets referred by the authenticated user.
+ * GET /api/referrals — list wallets referred by the authenticated user
+ * along with the perks (XP / coins) they have earned the caller, plus
+ * the tunable program parameters so the client can render explanatory
+ * copy without hard-coding the rates.
  */
 if (authEnv) {
   app.get("/api/referrals", requireAuth(authEnv), async (req, res) => {
     if (!isDbConfigured()) return res.status(503).json({ error: "database not configured" });
     try {
-      const rows = await query<{ referee: string; created_at: string }>(
-        "SELECT referee, created_at FROM referrals WHERE referrer = $1 ORDER BY created_at DESC",
-        [req.wallet!],
-      );
-      return res.json({ referrals: rows, count: rows.length });
+      const { rows, summary } = await listReferralsFor(req.wallet!);
+      return res.json({
+        referrals: rows.map((r) => ({
+          referee: r.referee,
+          displayName: r.display_name,
+          createdAt: r.created_at,
+          xpEarned: r.xp_earned,
+          coinsEarned: r.coins_earned,
+          firstMatchAt: r.referee_first_match_at,
+        })),
+        summary,
+        program: {
+          xpPercent: REFERRAL_XP_PERCENT,
+          xpCapPerReferee: REFERRAL_XP_CAP_PER_REFEREE,
+          firstMatchCoins: REFERRAL_FIRST_MATCH_COINS,
+        },
+      });
     } catch (e) {
       captureException(e, { route: "GET /api/referrals" });
       return res.status(500).json({ error: "failed to load referrals" });
