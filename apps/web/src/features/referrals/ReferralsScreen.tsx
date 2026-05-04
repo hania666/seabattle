@@ -4,6 +4,7 @@ import { useLoginWithAbstract } from "@abstract-foundation/agw-react";
 import { BackLink, Button, Card } from "../../components/ui";
 import { useT } from "../../lib/i18n";
 import { useAuth } from "../../lib/useAuth";
+import { useReferralCode } from "../../lib/useReferralCode";
 import { SERVER_URL } from "../../lib/socket";
 import { shortAddress } from "../../lib/format";
 
@@ -53,6 +54,19 @@ export function ReferralsScreen({ onExit }: Props) {
   const [copied, setCopied] = useState(false);
 
   const wallet = session?.wallet ?? null;
+  const {
+    code: refCode,
+    cooldownUntil: refCodeCooldownUntil,
+    error: refCodeError,
+    setCode: saveRefCode,
+  } = useReferralCode(wallet ?? undefined, authedFetch);
+  const [editingCode, setEditingCode] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [codeSaving, setCodeSaving] = useState(false);
+  const codeInputValid = /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(codeInput);
+  const refCodeCooldownActive = refCodeCooldownUntil
+    ? new Date(refCodeCooldownUntil).getTime() > Date.now()
+    : false;
 
   useEffect(() => {
     if (!wallet) {
@@ -79,7 +93,13 @@ export function ReferralsScreen({ onExit }: Props) {
     };
   }, [wallet, authedFetch]);
 
-  const referralUrl = address ? `${window.location.origin}?ref=${address}` : "";
+  // Prefer the vanity code in invite URLs when set: it's shorter, brandable,
+  // and doesn't expose the wallet. Falls back to the address so the link
+  // always works, even before the user picks a code.
+  const referralIdentifier = refCode ?? address ?? "";
+  const referralUrl = referralIdentifier
+    ? `${window.location.origin}?ref=${referralIdentifier}`
+    : "";
 
   const copy = useCallback(() => {
     if (!referralUrl) return;
@@ -87,6 +107,17 @@ export function ReferralsScreen({ onExit }: Props) {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [referralUrl]);
+
+  async function submitCode() {
+    if (!codeInputValid || codeSaving) return;
+    setCodeSaving(true);
+    const ok = await saveRefCode(codeInput);
+    setCodeSaving(false);
+    if (ok) {
+      setEditingCode(false);
+      setCodeInput("");
+    }
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 py-4">
@@ -131,8 +162,85 @@ export function ReferralsScreen({ onExit }: Props) {
             </div>
             <p className="mt-2 text-[11px] text-sea-500">
               {t("referrals.codeLabel")}{" "}
-              <span className="font-mono text-sea-200">{shortAddress(address)}</span>
+              <span className="font-mono text-sea-200">
+                {refCode ?? shortAddress(address)}
+              </span>
             </p>
+
+            <div className="mt-4 border-t border-sea-800/60 pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.25em] text-sea-400">
+                    {t("refcode.label")}
+                  </div>
+                  <p className="mt-0.5 text-xs text-sea-300">{t("refcode.lead")}</p>
+                </div>
+                {!editingCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCode(true);
+                      setCodeInput(refCode ?? "");
+                    }}
+                    disabled={refCodeCooldownActive}
+                    className="shrink-0 rounded-lg border border-sea-600/60 px-3 py-1.5 text-xs font-semibold text-sea-100 hover:bg-sea-800/40 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {refCode ? t("refcode.change") : t("refcode.set")}
+                  </button>
+                )}
+              </div>
+              {editingCode && (
+                <div className="mt-2 space-y-2">
+                  <input
+                    type="text"
+                    value={codeInput}
+                    onChange={(e) => setCodeInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void submitCode()}
+                    maxLength={20}
+                    placeholder="hania111"
+                    className="w-full rounded-lg border border-sea-700/60 bg-sea-900 px-3 py-2 text-sm text-sea-50 placeholder-sea-600 outline-none focus:border-gold-400/60"
+                    autoFocus
+                  />
+                  <p className="text-[11px] text-sea-500">{t("refcode.help")}</p>
+                  {refCodeError === "referral_code_cooldown" && (
+                    <p className="text-xs text-coral-400">{t("refcode.error.cooldown")}</p>
+                  )}
+                  {refCodeError === "referral_code_taken" && (
+                    <p className="text-xs text-coral-400">{t("refcode.error.taken")}</p>
+                  )}
+                  {refCodeError === "referral_code_reserved" && (
+                    <p className="text-xs text-coral-400">{t("refcode.error.reserved")}</p>
+                  )}
+                  {refCodeError &&
+                    ![
+                      "referral_code_cooldown",
+                      "referral_code_taken",
+                      "referral_code_reserved",
+                    ].includes(refCodeError) && (
+                      <p className="text-xs text-coral-400">{t("refcode.error.generic")}</p>
+                    )}
+                  <div className="flex gap-2">
+                    <Button
+                      variant="primary"
+                      onClick={() => void submitCode()}
+                      disabled={!codeInputValid || codeSaving}
+                    >
+                      {codeSaving ? t("refcode.saving") : t("refcode.save")}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCode(false);
+                        setCodeInput("");
+                      }}
+                      className="rounded-lg border border-sea-700/60 px-3 py-1.5 text-xs font-semibold text-sea-200 hover:bg-sea-800/40"
+                    >
+                      {t("refcode.cancel")}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </Card>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

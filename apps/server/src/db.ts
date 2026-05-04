@@ -106,6 +106,8 @@ export interface UserRow {
   ip_country: string | null;
   display_name: string | null;
   display_name_changed_at: Date | null;
+  referral_code: string | null;
+  referral_code_changed_at: Date | null;
 }
 
 export interface StatsRow {
@@ -314,6 +316,146 @@ export async function setDisplayName(rawWallet: string, name: string): Promise<U
   });
 }
 
+/**
+ * Cooldown between vanity referral-code changes, in milliseconds. Shorter
+ * than the username cooldown (24h vs 7d) because referral codes are not
+ * an identity surface — collisions just route invites to the wrong wallet,
+ * which is reversible the next sign-in. Tunable via env.
+ */
+function parseReferralCodeCooldownHours(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return 24;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(
+      `invalid REFERRAL_CODE_CHANGE_COOLDOWN_HOURS: ${JSON.stringify(raw)} ` +
+        `(must be a non-negative number of hours)`,
+    );
+  }
+  return n;
+}
+export const REFERRAL_CODE_CHANGE_COOLDOWN_MS =
+  parseReferralCodeCooldownHours(process.env.REFERRAL_CODE_CHANGE_COOLDOWN_HOURS) *
+  60 *
+  60 *
+  1000;
+
+/**
+ * Lower-cased reserved words that may not be claimed as referral codes.
+ * Mostly route segments and identity-adjacent words a user could use to
+ * impersonate platform tooling. Match is case-insensitive.
+ */
+export const RESERVED_REFERRAL_CODES = new Set<string>([
+  "admin",
+  "support",
+  "help",
+  "system",
+  "official",
+  "team",
+  "seabattle",
+  "battleship",
+  "null",
+  "undefined",
+  "anonymous",
+  "owner",
+  "moderator",
+  "mod",
+  "root",
+  "api",
+  "auth",
+  "login",
+  "signup",
+  "verify",
+  "leaderboard",
+  "referrals",
+  "profile",
+  "shop",
+  "claim",
+]);
+
+export class ReferralCodeCooldownError extends Error {
+  readonly nextAllowedAt: Date;
+  constructor(nextAllowedAt: Date) {
+    super("referral_code_cooldown");
+    this.name = "ReferralCodeCooldownError";
+    this.nextAllowedAt = nextAllowedAt;
+  }
+}
+
+/**
+ * Set or update the user's vanity referral code.
+ *
+ * Same idempotency + cooldown shape as `setDisplayName`. Validation of the
+ * shape (length, charset, leading-letter) is the route handler's job;
+ * here we only enforce the rules that need DB state (reserved words +
+ * cooldown + uniqueness).
+ *
+ * Throws `ReferralCodeCooldownError` if the user just changed their code,
+ * or surfaces a Postgres unique-violation if the code is already taken
+ * (the route handler maps that to 409). Reserved words throw a plain
+ * `Error("referral_code_reserved")` which the handler maps to 400.
+ */
+export async function setReferralCode(rawWallet: string, code: string): Promise<UserRow> {
+  const wallet = normaliseWallet(rawWallet);
+  if (RESERVED_REFERRAL_CODES.has(code.toLowerCase())) {
+    throw new Error("referral_code_reserved");
+  }
+  return withTransaction(async (client) => {
+    const existing = await client.query<UserRow>(
+      `SELECT * FROM users WHERE wallet = $1 FOR UPDATE`,
+      [wallet],
+    );
+    const current = existing.rows[0];
+    if (!current) throw new Error("user not found");
+
+    if (current.referral_code === code) return current;
+
+    if (
+      current.referral_code !== null &&
+      current.referral_code_changed_at !== null
+    ) {
+      const lastChange = new Date(current.referral_code_changed_at).getTime();
+      const elapsed = Date.now() - lastChange;
+      if (elapsed < REFERRAL_CODE_CHANGE_COOLDOWN_MS) {
+        const nextAllowedAt = new Date(lastChange + REFERRAL_CODE_CHANGE_COOLDOWN_MS);
+        throw new ReferralCodeCooldownError(nextAllowedAt);
+      }
+    }
+
+    const updated = await client.query<UserRow>(
+      `UPDATE users
+          SET referral_code = $2,
+              referral_code_changed_at = now()
+        WHERE wallet = $1
+        RETURNING *`,
+      [wallet, code],
+    );
+    return updated.rows[0]!;
+  });
+}
+
+/**
+ * Resolve a referral identifier (either a wallet address or a vanity code)
+ * to a wallet address. Returns null if the input doesn't look like either
+ * a valid wallet or a registered code. Used by `saveReferral` so a URL
+ * like `?ref=hania111` can route to the right inviter without exposing
+ * their wallet on chain.
+ */
+export async function resolveReferrer(rawValue: string | null | undefined): Promise<string | null> {
+  if (!rawValue) return null;
+  const value = rawValue.trim();
+  if (value.length === 0) return null;
+  if (/^0x[a-fA-F0-9]{40}$/.test(value)) {
+    return value.toLowerCase();
+  }
+  // Cheap shape filter so we don't burn a DB call on garbage referral params.
+  if (!/^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(value)) return null;
+  const rows = await query<{ wallet: string }>(
+    `SELECT wallet FROM users WHERE LOWER(referral_code) = LOWER($1) LIMIT 1`,
+    [value],
+  );
+  return rows[0]?.wallet ?? null;
+}
+
 export async function getUser(rawWallet: string): Promise<UserRow | null> {
   const wallet = normaliseWallet(rawWallet);
   const rows = await query<UserRow>(`SELECT * FROM users WHERE wallet = $1`, [wallet]);
@@ -409,7 +551,23 @@ export async function saveReferral(
   const refereeNorm = /^0x[a-f0-9]{40}$/.test(refereeLower)
     ? refereeLower
     : normaliseWallet(args.referee);
-  const ref = (args.referrer ?? "").toLowerCase().trim();
+
+  // The referrer field may arrive as either a wallet (`0x…`) or a vanity
+  // code. Resolve to a wallet first so all downstream checks (FK, sybil
+  // cap, INSERT) operate on the canonical key.
+  const rawRef = (args.referrer ?? "").trim();
+  let ref = rawRef.toLowerCase();
+  if (rawRef.length > 0 && !/^0x[a-f0-9]{40}$/.test(ref)) {
+    if (/^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(rawRef)) {
+      const resolved = await q<{ wallet: string }>(
+        `SELECT wallet FROM users WHERE LOWER(referral_code) = LOWER($1) LIMIT 1`,
+        [rawRef],
+      );
+      if (resolved[0]) {
+        ref = resolved[0].wallet.toLowerCase();
+      }
+    }
+  }
 
   // 1. format check
   if (!/^0x[a-f0-9]{40}$/.test(ref)) {

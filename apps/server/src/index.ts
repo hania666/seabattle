@@ -22,11 +22,15 @@ import {
   normaliseWallet,
   pingDb,
   recordAudit,
+  REFERRAL_CODE_CHANGE_COOLDOWN_MS,
   REFERRAL_FIRST_MATCH_COINS,
   REFERRAL_XP_CAP_PER_REFEREE,
   REFERRAL_XP_PERCENT,
+  ReferralCodeCooldownError,
+  RESERVED_REFERRAL_CODES,
   saveReferral,
   setDisplayName,
+  setReferralCode,
 } from "./db";
 import {
   AuthError,
@@ -488,6 +492,60 @@ if (authEnv) {
   // PUT is the rename verb — same handler, the cooldown logic in
   // setDisplayName is what enforces the 7-day window.
   app.put("/api/profile/username", requireAuth(authEnv), setUsernameHandler);
+}
+
+/**
+ * PUT /api/profile/referral-code — set or update the user's vanity
+ * referral code. Decoupled from `display_name` so a channel admin can
+ * advertise `?ref=hania111` without the URL doubling as their nickname.
+ *
+ * Body: { code: string }
+ * Rules: same shape as username (3-20 chars, letters/digits/underscores,
+ * leading letter); reserved words rejected; per-wallet cooldown of
+ * REFERRAL_CODE_CHANGE_COOLDOWN_MS (default 24h, env-tunable). DELETE
+ * clears the code so the user can fall back to wallet-based invites.
+ */
+if (authEnv) {
+  const setReferralCodeHandler: import("express").RequestHandler = async (req, res) => {
+    if (!isDbConfigured()) return res.status(503).json({ error: "database not configured" });
+    const raw = (req.body?.code ?? "").toString().trim();
+    if (!/^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(raw)) {
+      return res.status(400).json({
+        error: "code must be 3-20 chars, start with a letter, letters/digits/underscores only",
+      });
+    }
+    if (RESERVED_REFERRAL_CODES.has(raw.toLowerCase())) {
+      return res.status(400).json({ error: "referral_code_reserved" });
+    }
+    try {
+      const user = await setReferralCode(req.wallet!, raw);
+      const nextAllowedAt = user.referral_code_changed_at
+        ? new Date(
+            new Date(user.referral_code_changed_at).getTime() +
+              REFERRAL_CODE_CHANGE_COOLDOWN_MS,
+          ).toISOString()
+        : null;
+      return res.json({ ok: true, user, nextAllowedAt });
+    } catch (e: unknown) {
+      if (e instanceof ReferralCodeCooldownError) {
+        return res.status(429).json({
+          error: "referral_code_cooldown",
+          nextAllowedAt: e.nextAllowedAt.toISOString(),
+        });
+      }
+      const msg = (e as Error).message ?? "";
+      if (msg === "referral_code_reserved") {
+        return res.status(400).json({ error: "referral_code_reserved" });
+      }
+      if (msg.includes("unique") || msg.includes("duplicate")) {
+        return res.status(409).json({ error: "referral_code_taken" });
+      }
+      captureException(e, { route: `${req.method} /api/profile/referral-code` });
+      return res.status(500).json({ error: "failed to set referral code" });
+    }
+  };
+  app.put("/api/profile/referral-code", requireAuth(authEnv), setReferralCodeHandler);
+  app.post("/api/profile/referral-code", requireAuth(authEnv), setReferralCodeHandler);
 }
 
 

@@ -23,6 +23,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_display_name_ci ON users (LOWER(display_
 -- existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name_changed_at TIMESTAMPTZ;
 
+-- 003 migration: vanity referral code (decoupled from display_name so a
+-- channel admin can set a "join with code FOO" URL without exposing their
+-- nickname or wallet). `referral_code_changed_at` mirrors the cooldown
+-- pattern used for display_name.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code_changed_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS users_referral_code_ci ON users (LOWER(referral_code));
+
 -- 2. stats — coins, xp, win/loss, streaks (one row per wallet)
 CREATE TABLE IF NOT EXISTS stats (
   wallet                 TEXT PRIMARY KEY REFERENCES users(wallet) ON DELETE CASCADE,
