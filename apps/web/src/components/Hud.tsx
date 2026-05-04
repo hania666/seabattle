@@ -3,6 +3,7 @@ import { useAccount } from "wagmi";
 import { loadStats, type PlayerStats } from "../lib/stats";
 import { rankForXp, TONE_CLASSES } from "../lib/ranks";
 import { useCoins } from "../lib/coins";
+import { useT } from "../lib/i18n";
 
 /**
  * Compact top-right readout — rank badge, XP (rank points), Coins (shop
@@ -11,6 +12,7 @@ import { useCoins } from "../lib/coins";
  */
 export function Hud() {
   const { address } = useAccount();
+  const t = useT();
   const [stats, setStats] = useState<PlayerStats>(() => loadStats(address));
   const coins = useCoins(address);
 
@@ -26,15 +28,16 @@ export function Hud() {
   const progress = rankForXp(stats.xp);
   const tone = TONE_CLASSES[progress.rank.tone];
   const wins = stats.pveWins + stats.pvpWins;
+  const rankLabel = t(progress.rank.labelKey);
 
   return (
     <div className="flex items-center gap-2">
       <div
         className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ring-2 ring-inset ${tone.bg} ${tone.ring} ${tone.text}`}
-        title={`${progress.rank.label} · ${stats.xp.toLocaleString()} XP`}
+        title={`${rankLabel} · ${stats.xp.toLocaleString()} XP`}
       >
         <RankChevron />
-        <span className="hidden sm:inline">{progress.rank.label}</span>
+        <span className="hidden sm:inline">{rankLabel}</span>
       </div>
       <div
         className="flex items-center gap-1.5 rounded-full bg-sea-950/70 px-3 py-1.5 text-xs font-semibold text-sea-100 ring-1 ring-sea-500/40"

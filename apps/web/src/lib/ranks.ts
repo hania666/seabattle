@@ -7,8 +7,14 @@
 export interface Rank {
   /** Internal key — English, used for icons/colors. */
   key: string;
-  /** Display label — Russian, matching the brief. */
-  label: string;
+  /**
+   * i18n key for the display label. Use `useT()` (or `t(rank.labelKey)`)
+   * at the render site so the rank name follows the active language. The
+   * string was previously a hard-coded Russian label which leaked through
+   * to every other locale; switching to a key fixes that and lets us also
+   * propagate the translated name into achievement descriptions.
+   */
+  labelKey: string;
   /** Inclusive XP threshold to reach this rank. */
   minXp: number;
   /** Tailwind tone for badges. */
@@ -16,14 +22,14 @@ export interface Rank {
 }
 
 export const RANKS: Rank[] = [
-  { key: "cabin-boy", label: "Юнга", minXp: 0, tone: "slate" },
-  { key: "sailor", label: "Матрос", minXp: 100, tone: "sea" },
-  { key: "bosun", label: "Боцман", minXp: 500, tone: "teal" },
-  { key: "midshipman", label: "Мичман", minXp: 1500, tone: "sea" },
-  { key: "lieutenant", label: "Лейтенант", minXp: 3000, tone: "gold" },
-  { key: "commander", label: "Капитан-лейтенант", minXp: 6000, tone: "gold" },
-  { key: "captain", label: "Капитан", minXp: 10000, tone: "coral" },
-  { key: "admiral", label: "Адмирал", minXp: 20000, tone: "violet" },
+  { key: "cabin-boy", labelKey: "rank.cabinBoy", minXp: 0, tone: "slate" },
+  { key: "sailor", labelKey: "rank.sailor", minXp: 100, tone: "sea" },
+  { key: "bosun", labelKey: "rank.bosun", minXp: 500, tone: "teal" },
+  { key: "midshipman", labelKey: "rank.midshipman", minXp: 1500, tone: "sea" },
+  { key: "lieutenant", labelKey: "rank.lieutenant", minXp: 3000, tone: "gold" },
+  { key: "commander", labelKey: "rank.commander", minXp: 6000, tone: "gold" },
+  { key: "captain", labelKey: "rank.captain", minXp: 10000, tone: "coral" },
+  { key: "admiral", labelKey: "rank.admiral", minXp: 20000, tone: "violet" },
 ];
 
 export interface RankProgress {

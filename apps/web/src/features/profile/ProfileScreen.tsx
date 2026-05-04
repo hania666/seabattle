@@ -98,14 +98,14 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
               Current rank
             </div>
             <div className="font-display text-3xl font-bold text-sea-50">
-              {progress.rank.label}
+              {t(progress.rank.labelKey)}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-sea-300">
               <span className="text-gold-300">{stats.xp.toLocaleString()} XP</span>
               <span>· win rate {winRate}%</span>
               {progress.next && (
                 <span className="text-sea-200/80">
-                  · {progress.xpForNext - progress.xpIntoRank} XP to {progress.next.label}
+                  · {progress.xpForNext - progress.xpIntoRank} XP to {t(progress.next.labelKey)}
                 </span>
               )}
             </div>
@@ -169,10 +169,10 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
                       ? "bg-sea-900/70 text-sea-100 ring-sea-600/60"
                       : "bg-sea-950/60 text-sea-400/70 ring-sea-800/60"
                 }`}
-                title={`${r.label} · unlock at ${r.minXp.toLocaleString()} XP`}
+                title={`${t(r.labelKey)} · unlock at ${r.minXp.toLocaleString()} XP`}
               >
                 <RankBadge className="h-3.5 w-3.5" />
-                <span className="font-medium">{r.label}</span>
+                <span className="font-medium">{t(r.labelKey)}</span>
                 <span className="text-[10px] opacity-75 tabular-nums">
                   {r.minXp.toLocaleString()}
                 </span>
