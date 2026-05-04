@@ -162,7 +162,7 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
                     {t("home.yourRank")}
                   </div>
                   <div className="font-display text-2xl font-bold text-sea-50">
-                    {progress.rank.label}
+                    {t(progress.rank.labelKey)}
                   </div>
                 </div>
                 <div className="text-right text-sm text-sea-200">
@@ -173,7 +173,7 @@ export function Home({ onPvE, onPvP, onProfile, onLeaderboard }: Props) {
                     <div className="text-[11px] text-sea-300/80">
                       {t("home.xpTo", {
                         n: progress.xpForNext - progress.xpIntoRank,
-                        rank: progress.next.label,
+                        rank: t(progress.next.labelKey),
                       })}
                     </div>
                   )}

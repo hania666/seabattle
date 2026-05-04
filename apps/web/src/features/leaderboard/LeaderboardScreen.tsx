@@ -4,6 +4,7 @@ import { BackLink, Button, Card } from "../../components/ui";
 import { shortAddress } from "../../lib/format";
 import { rankForXp, TONE_CLASSES, RANKS } from "../../lib/ranks";
 import { loadStats } from "../../lib/stats";
+import { useT } from "../../lib/i18n";
 import {
   buildSubmitMessage,
   fetchLeaderboard,
@@ -21,6 +22,7 @@ interface Props {
  * the layout is still showable.
  */
 export function LeaderboardScreen({ onExit }: Props) {
+  const t = useT();
   const { address, isConnected } = useAccount();
   const { signMessageAsync, isPending: signing } = useSignMessage();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
@@ -166,7 +168,7 @@ export function LeaderboardScreen({ onExit }: Props) {
                   <span
                     className={`hidden shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 sm:inline-flex ${tone.bg} ${tone.text} ${tone.ring}`}
                   >
-                    {rank.label}
+                    {t(rank.labelKey)}
                   </span>
                   <span className="flex-1 truncate font-mono text-xs text-sea-100">
                     {shortAddress(e.address)}
