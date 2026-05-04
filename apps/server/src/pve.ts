@@ -32,6 +32,7 @@
 import { randomBytes } from "node:crypto";
 import type { Hex, PrivateKeyAccount } from "viem";
 import { awardReferralPerks, normaliseWallet, recordAudit, withTransaction } from "./db";
+import { captureException } from "./sentry";
 import { signResult } from "./signer";
 import {
   FLEET_TOTAL_CELLS,
@@ -511,13 +512,20 @@ export async function finishPveMatch(
       throw new Error("stats row not updated after upsert");
     }
 
-    // Referral perks: same transaction so the referrer credit either
-    // commits with the match or rolls back with it. We compute the
-    // referee's match XP from the (server-trusted) difficulty stored at
-    // match-start time, so a tampered client claim can't inflate the
-    // bonus.
+    // Referral perks run in the same transaction so referrer credit is
+    // visible immediately. We compute match XP from the server-trusted
+    // difficulty so a tampered client claim can't inflate the bonus.
+    // Failures here are soft: the match itself has already been validated
+    // and recorded, and we don't want unrelated bookkeeping issues (DB
+    // contention, NaN env, etc.) to roll the whole match back.
     const matchXp = pveMatchXp(match.difficulty as Difficulty | null, won);
-    const award = await awardReferralPerks(client, wallet, matchXp);
+    let award: Awaited<ReturnType<typeof awardReferralPerks>> = null;
+    try {
+      award = await awardReferralPerks(client, wallet, matchXp);
+    } catch (e) {
+      console.error("[pve] awardReferralPerks failed (non-fatal)", e);
+      captureException(e, { route: "pve.finish.referralPerks", wallet });
+    }
 
     return {
       kind: "ok",

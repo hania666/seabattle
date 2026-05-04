@@ -24,8 +24,9 @@ interface ReferralsResponse {
   referrals: ReferralRow[];
   summary: {
     count: number;
-    xpEarned: number;
-    coinsEarned: number;
+    active: number;
+    totalXpEarned: number;
+    totalCoinsEarned: number;
   };
   program: {
     xpPercent: number;
@@ -148,7 +149,7 @@ export function ReferralsScreen({ onExit }: Props) {
                 {t("referrals.stat.xpEarned")}
               </div>
               <div className="mt-1 font-display text-3xl font-bold text-gold-300">
-                {data?.summary.xpEarned ?? 0}
+                {data?.summary.totalXpEarned ?? 0}
               </div>
             </Card>
             <Card>
@@ -156,7 +157,7 @@ export function ReferralsScreen({ onExit }: Props) {
                 {t("referrals.stat.coinsEarned")}
               </div>
               <div className="mt-1 font-display text-3xl font-bold text-gold-300">
-                {data?.summary.coinsEarned ?? 0}
+                {data?.summary.totalCoinsEarned ?? 0}
               </div>
             </Card>
           </div>
