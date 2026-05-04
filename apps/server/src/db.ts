@@ -557,8 +557,14 @@ export async function saveReferral(
   // cap, INSERT) operate on the canonical key.
   const rawRef = (args.referrer ?? "").trim();
   let ref = rawRef.toLowerCase();
+  // Track whether the input *looked* like a vanity code so we can
+  // distinguish "code-shaped but unknown referrer" from "garbage input"
+  // in the audit log. Without this distinction we'd flag a typo of a real
+  // code the same as random characters and lose the abuse signal.
+  let wasVanityAttempt = false;
   if (rawRef.length > 0 && !/^0x[a-f0-9]{40}$/.test(ref)) {
     if (/^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(rawRef)) {
+      wasVanityAttempt = true;
       const resolved = await q<{ wallet: string }>(
         `SELECT wallet FROM users WHERE LOWER(referral_code) = LOWER($1) LIMIT 1`,
         [rawRef],
@@ -574,14 +580,18 @@ export async function saveReferral(
     if (ref.length > 0) {
       // Only audit when something *was* provided that looked vaguely like a
       // ref. Empty / null refs aren't suspicious — most users have no ref.
+      const reason: ReferralRejectReason = wasVanityAttempt
+        ? "unknown_referrer"
+        : "invalid_format";
       await audit({
         wallet: refereeNorm,
         action: "referral_rejected",
-        payload: { reason: "invalid_format" satisfies ReferralRejectReason },
+        payload: { reason, ref: rawRef },
         ip: args.ip ?? null,
         userAgent: args.userAgent ?? null,
         severity: "warn",
       });
+      return { ok: false, reason };
     }
     return { ok: false, reason: "invalid_format" };
   }
