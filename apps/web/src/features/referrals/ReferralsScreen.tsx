@@ -64,8 +64,17 @@ export function ReferralsScreen({ onExit }: Props) {
   const [codeInput, setCodeInput] = useState("");
   const [codeSaving, setCodeSaving] = useState(false);
   const codeInputValid = /^[a-zA-Z][a-zA-Z0-9_]{2,19}$/.test(codeInput);
+  // Re-render every minute while a cooldown is pending so the "Change"
+  // button re-enables itself the moment the cooldown expires, even if the
+  // user is just sitting on this screen. Mirrors ReferralCodeRow.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!refCodeCooldownUntil) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, [refCodeCooldownUntil]);
   const refCodeCooldownActive = refCodeCooldownUntil
-    ? new Date(refCodeCooldownUntil).getTime() > Date.now()
+    ? new Date(refCodeCooldownUntil).getTime() > nowMs
     : false;
 
   useEffect(() => {
