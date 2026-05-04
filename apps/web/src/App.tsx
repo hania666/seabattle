@@ -42,7 +42,12 @@ const LeaderboardScreen = lazy(() =>
 const ShopScreen = lazy(() =>
   import("./features/shop/ShopScreen").then((m) => ({ default: m.ShopScreen })),
 );
-type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard" | "shop";
+const ReferralsScreen = lazy(() =>
+  import("./features/referrals/ReferralsScreen").then((m) => ({
+    default: m.ReferralsScreen,
+  })),
+);
+type Screen = "home" | "pve" | "pvp" | "profile" | "leaderboard" | "shop" | "referrals";
 
 export default function App() {
   return (
@@ -154,6 +159,18 @@ function AppInner() {
             </button>
             <button
               type="button"
+              onClick={() => goto("referrals")}
+              className={`hidden rounded-lg px-3 py-2 text-sm font-medium transition sm:inline-flex ${
+                screen === "referrals"
+                  ? "bg-sea-800/70 text-sea-50"
+                  : "text-sea-200 hover:bg-sea-800/40"
+              }`}
+              data-testid="nav-referrals"
+            >
+              {t("nav.referrals")}
+            </button>
+            <button
+              type="button"
               onClick={() => goto("profile")}
               className={`hidden rounded-lg px-3 py-2 text-sm font-medium transition sm:inline-flex ${
                 screen === "profile"
@@ -214,6 +231,9 @@ function AppInner() {
               <LeaderboardScreen onExit={() => goto("home")} />
             )}
             {screen === "shop" && <ShopScreen onExit={() => goto("home")} />}
+            {screen === "referrals" && (
+              <ReferralsScreen onExit={() => goto("home")} />
+            )}
           </Suspense>
         </main>
 

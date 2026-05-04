@@ -4,17 +4,24 @@
 
 -- 1. users — wallet identity, ban state, soft metadata
 CREATE TABLE IF NOT EXISTS users (
-  wallet           TEXT PRIMARY KEY,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  banned_at        TIMESTAMPTZ,
-  banned_reason    TEXT,
-  ip_country       TEXT,
-  display_name     TEXT,
+  wallet                  TEXT PRIMARY KEY,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  banned_at               TIMESTAMPTZ,
+  banned_reason           TEXT,
+  ip_country              TEXT,
+  display_name            TEXT,
+  display_name_changed_at TIMESTAMPTZ,
   CONSTRAINT users_display_name_unique UNIQUE (display_name)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_display_name_ci ON users (LOWER(display_name));
+
+-- 002 migration: track when display_name was last set so we can enforce a
+-- per-wallet cooldown on renames (anti-impersonation / anti-farm). Idempotent
+-- for pre-existing deployments where the table was created before this column
+-- existed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name_changed_at TIMESTAMPTZ;
 
 -- 2. stats — coins, xp, win/loss, streaks (one row per wallet)
 CREATE TABLE IF NOT EXISTS stats (
@@ -151,12 +158,20 @@ CREATE TRIGGER inventory_touch_updated_at
 
 -- 10. referrals
 CREATE TABLE IF NOT EXISTS referrals (
-  referrer     TEXT NOT NULL REFERENCES users(wallet) ON DELETE CASCADE,
-  referee      TEXT NOT NULL REFERENCES users(wallet) ON DELETE CASCADE,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  referrer                TEXT NOT NULL REFERENCES users(wallet) ON DELETE CASCADE,
+  referee                 TEXT NOT NULL REFERENCES users(wallet) ON DELETE CASCADE,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  xp_earned               INTEGER NOT NULL DEFAULT 0 CHECK (xp_earned >= 0),
+  coins_earned            INTEGER NOT NULL DEFAULT 0 CHECK (coins_earned >= 0),
+  referee_first_match_at  TIMESTAMPTZ,
   PRIMARY KEY (referee)
 );
 CREATE INDEX IF NOT EXISTS referrals_referrer_idx ON referrals (referrer, created_at DESC);
+
+-- 003 migration: idempotent ALTERs for pre-existing deployments.
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS xp_earned              INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS coins_earned           INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS referee_first_match_at TIMESTAMPTZ;
 
 -- migration version table
 CREATE TABLE IF NOT EXISTS schema_migrations (

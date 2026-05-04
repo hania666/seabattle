@@ -105,6 +105,7 @@ export interface UserRow {
   banned_reason: string | null;
   ip_country: string | null;
   display_name: string | null;
+  display_name_changed_at: Date | null;
 }
 
 export interface StatsRow {
@@ -214,14 +215,103 @@ export async function closePool(): Promise<void> {
   }
 }
 
+/**
+ * Cooldown between username changes, in milliseconds.
+ *
+ * Per-wallet rule: once a user has set a non-null `display_name`, they must
+ * wait this long before setting it to anything else. Two reasons:
+ *   1. Anti-impersonation: blocks "park a famous nickname → release it →
+ *      log right back in to grab it again". Adversary can't churn names.
+ *   2. Anti-farm: usernames are a public surface (leaderboard, referrals);
+ *      churning them across wallets at high rate would let one human
+ *      operator pretend to be a community.
+ *
+ * 7 days was picked deliberately: long enough that an impostor can't
+ * "park-then-grab" a name they don't own, short enough that real users
+ * who genuinely typo'd their name aren't punished for a month.
+ *
+ * Tunable via DISPLAY_NAME_CHANGE_COOLDOWN_DAYS env var. The export is
+ * derived once at module load to keep tests deterministic.
+ */
+function parseDisplayNameCooldownDays(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return 7;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(
+      `invalid DISPLAY_NAME_CHANGE_COOLDOWN_DAYS: ${JSON.stringify(raw)} ` +
+        `(must be a non-negative number of days)`,
+    );
+  }
+  return n;
+}
+export const DISPLAY_NAME_CHANGE_COOLDOWN_MS =
+  parseDisplayNameCooldownDays(process.env.DISPLAY_NAME_CHANGE_COOLDOWN_DAYS) *
+  24 *
+  60 *
+  60 *
+  1000;
+
+export class DisplayNameCooldownError extends Error {
+  readonly nextAllowedAt: Date;
+  constructor(nextAllowedAt: Date) {
+    super("display_name_cooldown");
+    this.name = "DisplayNameCooldownError";
+    this.nextAllowedAt = nextAllowedAt;
+  }
+}
+
+/**
+ * Set or update the user's display_name.
+ *
+ * Idempotent on no-op writes (same name as currently stored): the cooldown
+ * does not trip, and `display_name_changed_at` is left untouched. This
+ * matters because the auth flow may call this on every sign-in for users
+ * who already have a name set — we don't want to keep refreshing the
+ * cooldown anchor.
+ *
+ * Otherwise: if the user has a previous name AND it was set within the
+ * cooldown window, throw `DisplayNameCooldownError` so the route handler
+ * can surface a 429 with the unlock time. Successful change atomically
+ * stamps `display_name_changed_at = now()` so the next-allowed time can
+ * be computed from a single timestamp.
+ */
 export async function setDisplayName(rawWallet: string, name: string): Promise<UserRow> {
   const wallet = normaliseWallet(rawWallet);
-  const rows = await query<UserRow>(
-    `UPDATE users SET display_name = $2 WHERE wallet = $1 RETURNING *`,
-    [wallet, name],
-  );
-  if (!rows[0]) throw new Error("user not found");
-  return rows[0];
+  return withTransaction(async (client) => {
+    const existing = await client.query<UserRow>(
+      `SELECT * FROM users WHERE wallet = $1 FOR UPDATE`,
+      [wallet],
+    );
+    const current = existing.rows[0];
+    if (!current) throw new Error("user not found");
+
+    // No-op: caller is asking to set the same name we already have. Skip
+    // both the cooldown check and the update — nothing changes anyway,
+    // and we don't want to bump `display_name_changed_at`.
+    if (current.display_name === name) return current;
+
+    if (
+      current.display_name !== null &&
+      current.display_name_changed_at !== null
+    ) {
+      const lastChange = new Date(current.display_name_changed_at).getTime();
+      const elapsed = Date.now() - lastChange;
+      if (elapsed < DISPLAY_NAME_CHANGE_COOLDOWN_MS) {
+        const nextAllowedAt = new Date(lastChange + DISPLAY_NAME_CHANGE_COOLDOWN_MS);
+        throw new DisplayNameCooldownError(nextAllowedAt);
+      }
+    }
+
+    const updated = await client.query<UserRow>(
+      `UPDATE users
+          SET display_name = $2,
+              display_name_changed_at = now()
+        WHERE wallet = $1
+        RETURNING *`,
+      [wallet, name],
+    );
+    return updated.rows[0]!;
+  });
 }
 
 export async function getUser(rawWallet: string): Promise<UserRow | null> {
@@ -450,4 +540,230 @@ export async function saveReferral(
     severity,
   });
   return { ok: false, reason };
+}
+
+/**
+ * Per-referee lifetime cap on bonus XP credited to the referrer. Above this,
+ * additional matches by the referee no longer earn the referrer XP — the
+ * one-time +100 coins on the first match is still granted (the cap only
+ * affects the recurring percentage bonus).
+ *
+ * Tunable via REFERRAL_XP_CAP_PER_REFEREE env var. The default of 1000 was
+ * chosen so that one whale referee can't be milked indefinitely (a Hard
+ * bot match is 100 XP today, so 10% × 1000 ≈ ten matches × $reward unit).
+ */
+function parseReferralXpCap(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return 1000;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+    throw new Error(
+      `invalid REFERRAL_XP_CAP_PER_REFEREE: ${JSON.stringify(raw)} ` +
+        `(must be a non-negative integer)`,
+    );
+  }
+  return n;
+}
+export const REFERRAL_XP_CAP_PER_REFEREE = parseReferralXpCap(
+  process.env.REFERRAL_XP_CAP_PER_REFEREE,
+);
+
+/** Percentage of the referee's match XP that goes to the referrer. */
+function parseReferralXpPercent(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return 10;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
+    throw new Error(
+      `invalid REFERRAL_XP_PERCENT: ${JSON.stringify(raw)} ` +
+        `(must be a number in [0, 100])`,
+    );
+  }
+  return n;
+}
+export const REFERRAL_XP_PERCENT = parseReferralXpPercent(process.env.REFERRAL_XP_PERCENT);
+
+/** One-time coins reward to the referrer the first time the referee finishes a match. */
+function parseReferralFirstMatchCoins(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return 100;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+    throw new Error(
+      `invalid REFERRAL_FIRST_MATCH_COINS: ${JSON.stringify(raw)} ` +
+        `(must be a non-negative integer)`,
+    );
+  }
+  return n;
+}
+export const REFERRAL_FIRST_MATCH_COINS = parseReferralFirstMatchCoins(
+  process.env.REFERRAL_FIRST_MATCH_COINS,
+);
+
+export interface ReferralPerkAward {
+  referrer: string;
+  /** XP credited to the referrer for this match (after cap). */
+  xpAwarded: number;
+  /** Coins credited to the referrer for this match (one-time first-match bonus). */
+  coinsAwarded: number;
+  /** Total XP credited to this referee across all matches (post-update). */
+  xpEarnedTotal: number;
+  /** Total coins credited from this referee (post-update). */
+  coinsEarnedTotal: number;
+  /** True if this was the referee's first credited match. */
+  firstMatch: boolean;
+}
+
+/**
+ * Atomically credit the referrer for a finished match by the referee.
+ *
+ * Runs inside the supplied client (must be in a transaction) so the perk
+ * write commits or rolls back with the rest of the match outcome — we never
+ * want to bump the referrer's stats and then lose the match record.
+ *
+ * Rules:
+ *   - referee must have a row in `referrals`; if not, returns null (no-op).
+ *   - on first credited match: stamp `referee_first_match_at = now()` and
+ *     credit `REFERRAL_FIRST_MATCH_COINS` to referrer's `stats.coins`.
+ *   - on every credited match: credit `floor(matchXp * REFERRAL_XP_PERCENT / 100)`
+ *     to referrer's `stats.xp`, but only up to the lifetime cap
+ *     `REFERRAL_XP_CAP_PER_REFEREE` per referee.
+ *   - referrer is `getOrCreateUser`-style upserted on the stats row so a
+ *     missing stats row never silently swallows the bonus.
+ *
+ * Returns the awarded amounts (or null if no referrer is on file).
+ *
+ * Caller should treat any thrown error as a soft failure: the match has
+ * already committed and we don't want to roll it back just because the
+ * referral bookkeeping failed. Logging is the route handler's job.
+ */
+export async function awardReferralPerks(
+  client: PoolClient,
+  rawReferee: string,
+  matchXp: number,
+): Promise<ReferralPerkAward | null> {
+  const referee = normaliseWallet(rawReferee);
+  if (matchXp < 0 || !Number.isFinite(matchXp)) return null;
+
+  const refRows = await client.query<{
+    referrer: string;
+    xp_earned: number;
+    coins_earned: number;
+    referee_first_match_at: Date | null;
+  }>(
+    `SELECT referrer, xp_earned, coins_earned, referee_first_match_at
+       FROM referrals WHERE referee = $1 FOR UPDATE`,
+    [referee],
+  );
+  const r = refRows.rows[0];
+  if (!r) return null;
+
+  const remaining = Math.max(0, REFERRAL_XP_CAP_PER_REFEREE - r.xp_earned);
+  const xpDelta = Math.min(remaining, Math.floor((matchXp * REFERRAL_XP_PERCENT) / 100));
+  const firstMatch = r.referee_first_match_at === null;
+  const coinsDelta = firstMatch ? REFERRAL_FIRST_MATCH_COINS : 0;
+
+  if (xpDelta === 0 && coinsDelta === 0 && !firstMatch) {
+    // Nothing to do — cap reached and not the first match. Return zero
+    // award rather than null so callers can still distinguish "no
+    // referrer at all" (null) from "referrer but capped" (0/0).
+    return {
+      referrer: r.referrer,
+      xpAwarded: 0,
+      coinsAwarded: 0,
+      xpEarnedTotal: r.xp_earned,
+      coinsEarnedTotal: r.coins_earned,
+      firstMatch: false,
+    };
+  }
+
+  // Update the referrals row first so the cap check is durable across
+  // concurrent finishes (the FOR UPDATE above already serialises within
+  // this referee row). The stats row is upserted defensively in case the
+  // referrer's stats were never created.
+  const updatedRef = await client.query<{
+    xp_earned: number;
+    coins_earned: number;
+  }>(
+    `UPDATE referrals
+        SET xp_earned    = xp_earned + $2,
+            coins_earned = coins_earned + $3,
+            referee_first_match_at = COALESCE(referee_first_match_at, now())
+      WHERE referee = $1
+      RETURNING xp_earned, coins_earned`,
+    [referee, xpDelta, coinsDelta],
+  );
+  const updated = updatedRef.rows[0]!;
+
+  if (xpDelta > 0 || coinsDelta > 0) {
+    await client.query(
+      `INSERT INTO users (wallet) VALUES ($1) ON CONFLICT (wallet) DO NOTHING`,
+      [r.referrer],
+    );
+    await client.query(
+      `INSERT INTO stats (wallet) VALUES ($1) ON CONFLICT (wallet) DO NOTHING`,
+      [r.referrer],
+    );
+    await client.query(
+      `UPDATE stats
+          SET xp        = xp + $2,
+              coins     = coins + $3,
+              updated_at = now()
+        WHERE wallet = $1`,
+      [r.referrer, xpDelta, coinsDelta],
+    );
+  }
+
+  return {
+    referrer: r.referrer,
+    xpAwarded: xpDelta,
+    coinsAwarded: coinsDelta,
+    xpEarnedTotal: updated.xp_earned,
+    coinsEarnedTotal: updated.coins_earned,
+    firstMatch,
+  };
+}
+
+export interface ReferralListRow {
+  referee: string;
+  display_name: string | null;
+  created_at: Date;
+  xp_earned: number;
+  coins_earned: number;
+  referee_first_match_at: Date | null;
+}
+
+export interface ReferralSummary {
+  count: number;
+  active: number;
+  totalXpEarned: number;
+  totalCoinsEarned: number;
+}
+
+export async function listReferralsFor(rawWallet: string): Promise<{
+  rows: ReferralListRow[];
+  summary: ReferralSummary;
+}> {
+  const wallet = normaliseWallet(rawWallet);
+  const rows = await query<ReferralListRow>(
+    `SELECT r.referee,
+            u.display_name,
+            r.created_at,
+            r.xp_earned,
+            r.coins_earned,
+            r.referee_first_match_at
+       FROM referrals r
+       LEFT JOIN users u ON u.wallet = r.referee
+      WHERE r.referrer = $1
+      ORDER BY r.created_at DESC`,
+    [wallet],
+  );
+  const summary: ReferralSummary = rows.reduce(
+    (acc, row) => {
+      acc.count += 1;
+      if (row.referee_first_match_at) acc.active += 1;
+      acc.totalXpEarned += row.xp_earned;
+      acc.totalCoinsEarned += row.coins_earned;
+      return acc;
+    },
+    { count: 0, active: 0, totalXpEarned: 0, totalCoinsEarned: 0 } as ReferralSummary,
+  );
+  return { rows, summary };
 }
