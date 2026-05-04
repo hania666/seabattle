@@ -21,6 +21,7 @@ import {
 } from "../../lib/rankDecay";
 import { useT } from "../../lib/i18n";
 import { AchievementGrid } from "./AchievementGrid";
+import { ReferralCodeRow } from "./ReferralCodeRow";
 import { ReferralLink } from "./ReferralLink";
 import { UsernameRow } from "./UsernameRow";
 
@@ -78,6 +79,7 @@ export function ProfileScreen({ onExit, onPlayPvE, onPlayPvP }: Props) {
             </p>
           )}
           {isConnected && address && <UsernameRow wallet={address} />}
+          {isConnected && address && <ReferralCodeRow wallet={address} />}
           {isConnected && address && <ReferralLink address={address} />}
         </div>
         {!isConnected && (
