@@ -633,6 +633,12 @@ export interface ReferralPerkAward {
  * Caller should treat any thrown error as a soft failure: the match has
  * already committed and we don't want to roll it back just because the
  * referral bookkeeping failed. Logging is the route handler's job.
+ *
+ * Caller should only invoke this on a referee WIN. We don't validate
+ * `won` here because callers typically already check for it (a loss has
+ * matchXp = 0 anyway, so the percentage bonus would be 0); however the
+ * first-match coin bonus is intended to fire on the first win, not the
+ * first finished match, so guarding at the call site is required.
  */
 export async function awardReferralPerks(
   client: PoolClient,
