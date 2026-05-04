@@ -515,16 +515,31 @@ export async function finishPveMatch(
     // Referral perks run in the same transaction so referrer credit is
     // visible immediately. We compute match XP from the server-trusted
     // difficulty so a tampered client claim can't inflate the bonus.
-    // Failures here are soft: the match itself has already been validated
-    // and recorded, and we don't want unrelated bookkeeping issues (DB
-    // contention, NaN env, etc.) to roll the whole match back.
-    const matchXp = pveMatchXp(match.difficulty as Difficulty | null, won);
+    //
+    // Only credit perks on a WIN: the recurring 10% XP is meaningless on
+    // a loss (matchXp = 0), and the one-time first-match coin bonus is
+    // explicitly described in i18n as "the first time a referral wins"
+    // — stamping referee_first_match_at on a loss would burn the bonus.
+    //
+    // Wrap the perk call in a SAVEPOINT so a Postgres error inside it
+    // (constraint, deadlock, etc.) doesn't poison the outer transaction
+    // and roll the validated match back. Failures here are soft.
     let award: Awaited<ReturnType<typeof awardReferralPerks>> = null;
-    try {
-      award = await awardReferralPerks(client, wallet, matchXp);
-    } catch (e) {
-      console.error("[pve] awardReferralPerks failed (non-fatal)", e);
-      captureException(e, { route: "pve.finish.referralPerks", wallet });
+    if (won) {
+      const matchXp = pveMatchXp(match.difficulty as Difficulty | null, won);
+      try {
+        await client.query("SAVEPOINT referral_perks");
+        award = await awardReferralPerks(client, wallet, matchXp);
+        await client.query("RELEASE SAVEPOINT referral_perks");
+      } catch (e) {
+        try {
+          await client.query("ROLLBACK TO SAVEPOINT referral_perks");
+        } catch {
+          // ignore — outer tx will surface real failures
+        }
+        console.error("[pve] awardReferralPerks failed (non-fatal)", e);
+        captureException(e, { route: "pve.finish.referralPerks", wallet });
+      }
     }
 
     return {
