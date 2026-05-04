@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "../../lib/useAuth";
+import { useReferralCode } from "../../lib/useReferralCode";
 
 interface Props {
   address: string;
@@ -6,7 +8,18 @@ interface Props {
 
 export function ReferralLink({ address }: Props) {
   const [copied, setCopied] = useState(false);
-  const url = `${window.location.origin}?ref=${address}`;
+  const { authedFetch, session } = useAuth();
+  const { code } = useReferralCode(session?.wallet, authedFetch);
+  // Re-render when ReferralCodeRow saves a new code, so the link below
+  // updates without a full reload.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const onUpdated = () => setTick((n) => n + 1);
+    window.addEventListener("referral-code:updated", onUpdated);
+    return () => window.removeEventListener("referral-code:updated", onUpdated);
+  }, []);
+  const identifier = code ?? address;
+  const url = `${window.location.origin}?ref=${identifier}`;
 
   function copy() {
     void navigator.clipboard.writeText(url);
