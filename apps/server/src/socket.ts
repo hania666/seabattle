@@ -299,7 +299,7 @@ export function registerSocketHandlers(
       for (const [id, active] of matches) {
         const side = sideOf(active, socket.id);
         if (!side) continue;
-        const loser  = side === "A" ? active.match.playerA : active.match.playerB;
+const loser  = side === "A" ? active.match.playerA : active.match.playerB;
         const winner = side === "A" ? active.match.playerB : active.match.playerA;
         void endMatch(id as `0x${string}`, winner, loser, "disconnect");
         break;
